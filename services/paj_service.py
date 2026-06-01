@@ -395,6 +395,28 @@ def ler_arquivo(paj_norm: str, caminho_relativo: str) -> tuple[Path | None, str]
     return arquivo, content_types.get(ext, "application/octet-stream")
 
 
+def ler_texto_robusto(path: Path) -> str:
+    """Le um arquivo de texto tentando varias codificacoes em cascata.
+
+    PDFs OCRados, arquivos vindos do SISDPU e textos colados de outros sistemas
+    nem sempre estao em UTF-8 — em maquinas Windows e' comum CP1252 (Windows-1252)
+    e Latin-1 (ISO-8859-1). Tenta UTF-8 primeiro (caso mais comum e correto) e so
+    entao os fallbacks; em ultimo caso, UTF-8 com `errors="replace"` (nunca falha).
+    """
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            return path.read_text(encoding=enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+        except OSError:
+            return ""
+    # Ultimo recurso: nunca levanta — substitui bytes invalidos.
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def limpar_anexos_paj(
     paj_norm: str,
     dry_run: bool = True,

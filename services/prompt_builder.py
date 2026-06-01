@@ -35,14 +35,11 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
 
     metadata = _ler_json(pasta / "metadata.json") or {}
     sisdpu_path = pasta / "sisdpu.txt"
-    sisdpu_texto = (
-        sisdpu_path.read_text(encoding="utf-8", errors="replace")
-        if sisdpu_path.exists()
-        else ""
-    )
 
     # Import tardio pra evitar ciclo com paj_service
-    from services.paj_service import listar_pecas_assistido
+    from services.paj_service import listar_pecas_assistido, ler_texto_robusto
+
+    sisdpu_texto = ler_texto_robusto(sisdpu_path) if sisdpu_path.exists() else ""
 
     pecas_antes = listar_pecas_assistido(metadata.get("assistido_caixa", ""))
 
