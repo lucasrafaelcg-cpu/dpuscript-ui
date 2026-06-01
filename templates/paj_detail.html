@@ -213,12 +213,18 @@
                             </optgroup>
                         </template>
                     </select>
-                    <button class="btn btn-sm btn-primary" @click="iniciar()">
+                    <button class="btn btn-sm btn-outline btn-primary" @click="planejar()" :disabled="planejando">
+                        <span class="loading loading-spinner loading-xs" x-show="planejando"></span>
+                        <span x-text="planejando ? 'Planejando…' : 'Planejar atuação'"></span>
+                    </button>
+                    <button class="btn btn-sm btn-primary" @click="iniciar()" :disabled="planejando">
                         Elaborar
                     </button>
                 </div>
             </template>
             {% endif %}
+
+            {% include "partials/planejar_modal.html" %}
 
             <button class="btn btn-sm btn-warning"
                     x-show="status === 'running'"

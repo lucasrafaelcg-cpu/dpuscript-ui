@@ -524,6 +524,12 @@ function elaborarApp(pajNorm) {
         grupos: [],
         skillSlug: '',        // '' = "Claude decide"
         skillsLoading: true,
+        // Fluxo Planejar -> revisar -> aprovar -> elaborar
+        planejando: false,    // true enquanto o Claude monta o plano (~30-60s)
+        planoAberto: false,   // controla o modal de revisao do plano
+        plano: null,          // objeto do plano em revisao (editavel)
+        planoErro: '',
+        feedbackPlano: '',    // observacao do Defensor para "Refazer"
 
         async init() {
             await Promise.all([this.fetchStatus(), this.carregarSkills()]);
@@ -620,6 +626,75 @@ function elaborarApp(pajNorm) {
 
         verResumo() {
             abrirResumo(this.pajNorm);
+        },
+
+        // ----- Planejar: o Claude propoe um plano que o Defensor revisa -----
+
+        async planejar(feedback) {
+            this.planejando = true;
+            this.planoErro = '';
+            try {
+                const body = feedback ? JSON.stringify({feedback: feedback}) : '{}';
+                const resp = await fetch('/api/elaborar/planejar/' + this.pajNorm, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: body,
+                });
+                const data = await resp.json();
+                if (!data.ok || !data.plano) {
+                    this.planoErro = data.erro || 'Nao foi possivel gerar o plano.';
+                    this.planoAberto = true;
+                    return;
+                }
+                // Garante os campos esperados pela UI (evita inputs undefined)
+                this.plano = Object.assign({
+                    tipo_atuacao: '', tipo_peca: '',
+                    decisao_recorrida_descricao: '', decisao_recorrida_arquivo: '',
+                    analise_completa: '', confianca: '',
+                    fontes_auxiliares: [], alertas: [],
+                }, data.plano);
+                this.feedbackPlano = '';
+                this.planoAberto = true;
+            } catch (e) {
+                this.planoErro = 'Falha ao planejar: ' + e.message;
+                this.planoAberto = true;
+            } finally {
+                this.planejando = false;
+            }
+        },
+
+        refazerPlano() {
+            const obs = (this.feedbackPlano || '').trim();
+            if (!obs) {
+                showToast('Escreva uma observacao para o Claude refazer o plano', 'warning');
+                return;
+            }
+            this.planejar(obs);
+        },
+
+        fecharPlano() {
+            this.planoAberto = false;
+        },
+
+        async aprovarEElaborar() {
+            if (!this.plano) return;
+            try {
+                const resp = await fetch('/api/elaborar/aprovar-plano/' + this.pajNorm, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({plano: this.plano, fonte: 'jp'}),
+                });
+                const data = await resp.json();
+                if (!data.ok) {
+                    this.planoErro = data.erro || 'Falha ao salvar o plano.';
+                    return;
+                }
+                this.planoAberto = false;
+                showToast('Plano aprovado — iniciando elaboracao', 'success');
+                await this.iniciar();
+            } catch (e) {
+                this.planoErro = 'Falha ao aprovar: ' + e.message;
+            }
         }
     };
 }

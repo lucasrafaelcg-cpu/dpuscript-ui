@@ -1,0 +1,114 @@
+{# Modal de revisao do PLANO DE ATUACAO.
+   Incluido DENTRO do escopo x-data="elaborarApp(...)" do paj_detail.html, para
+   compartilhar o estado (plano, planoAberto, planejando, feedbackPlano) e os
+   metodos (refazerPlano, aprovarEElaborar, fecharPlano). #}
+<div class="modal" :class="{'modal-open': planoAberto}">
+    <div class="modal-box w-11/12 max-w-3xl">
+        <h3 class="font-bold text-lg mb-1">Plano de atuação</h3>
+        <p class="text-xs text-base-content/60 mb-3">
+            Revise e ajuste antes de elaborar. O Claude vai seguir este plano.
+        </p>
+
+        <template x-if="planoErro">
+            <div class="alert alert-error text-sm mb-3">
+                <span x-text="planoErro"></span>
+            </div>
+        </template>
+
+        <template x-if="plano">
+            <div class="space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="label py-1"><span class="label-text text-xs font-semibold">Tipo de atuação</span></label>
+                        <select class="select select-bordered select-sm w-full" x-model="plano.tipo_atuacao">
+                            <option value="RECURSO">Recurso</option>
+                            <option value="DESPACHO_INTERNO">Despacho interno</option>
+                            <option value="ARQUIVAMENTO">Arquivamento</option>
+                            <option value="NAO_ATUAR">Não atuar</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label py-1"><span class="label-text text-xs font-semibold">Peça a elaborar</span></label>
+                        <input type="text" class="input input-bordered input-sm w-full"
+                               x-model="plano.tipo_peca"
+                               placeholder="ex: contestacao, apelacao, despacho_arquivamento">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="label py-1"><span class="label-text text-xs font-semibold">Decisão / ato sob análise</span></label>
+                    <input type="text" class="input input-bordered input-sm w-full"
+                           x-model="plano.decisao_recorrida_descricao">
+                    <template x-if="plano.decisao_recorrida_arquivo">
+                        <p class="text-xs text-base-content/50 mt-1">
+                            Arquivo: <span x-text="plano.decisao_recorrida_arquivo"></span>
+                        </p>
+                    </template>
+                </div>
+
+                <div>
+                    <label class="label py-1"><span class="label-text text-xs font-semibold">Análise</span></label>
+                    <textarea class="textarea textarea-bordered textarea-sm w-full" rows="6"
+                              x-model="plano.analise_completa"></textarea>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <label class="label py-1"><span class="label-text text-xs font-semibold">Confiança</span></label>
+                    <select class="select select-bordered select-sm" x-model="plano.confianca">
+                        <option value="alta">Alta</option>
+                        <option value="media">Média</option>
+                        <option value="baixa">Baixa</option>
+                    </select>
+                </div>
+
+                <template x-if="plano.fontes_auxiliares && plano.fontes_auxiliares.length">
+                    <div>
+                        <p class="text-xs font-semibold mb-1">Fontes citadas</p>
+                        <ul class="text-xs list-disc ml-5 space-y-0.5">
+                            <template x-for="(f, i) in plano.fontes_auxiliares" :key="i">
+                                <li>
+                                    <span class="opacity-60" x-text="'(' + (f.tipo || '') + ') '"></span>
+                                    <span x-text="f.ref || ''"></span>
+                                    <span class="opacity-50" x-show="f.arquivo" x-text="' — ' + f.arquivo"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </template>
+
+                <template x-if="plano.alertas && plano.alertas.length">
+                    <div class="alert alert-warning text-xs py-2">
+                        <ul class="list-disc ml-4">
+                            <template x-for="(a, i) in plano.alertas" :key="i">
+                                <li x-text="a"></li>
+                            </template>
+                        </ul>
+                    </div>
+                </template>
+
+                <div class="border-t border-base-300 pt-3">
+                    <label class="label py-1">
+                        <span class="label-text text-xs font-semibold">Observação para refazer (opcional)</span>
+                    </label>
+                    <input type="text" class="input input-bordered input-sm w-full"
+                           x-model="feedbackPlano"
+                           placeholder="ex: a decisão é só de saneamento, não cabe recurso">
+                </div>
+            </div>
+        </template>
+
+        <div class="modal-action">
+            <button class="btn btn-sm btn-ghost" @click="fecharPlano()" :disabled="planejando">
+                Fechar
+            </button>
+            <button class="btn btn-sm" @click="refazerPlano()" :disabled="planejando">
+                <span class="loading loading-spinner loading-xs" x-show="planejando"></span>
+                Refazer com observação
+            </button>
+            <button class="btn btn-sm btn-primary" @click="aprovarEElaborar()" :disabled="planejando || !plano">
+                Aprovar e elaborar
+            </button>
+        </div>
+    </div>
+    <div class="modal-backdrop bg-black/40" @click="fecharPlano()"></div>
+</div>
