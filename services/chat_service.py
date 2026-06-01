@@ -79,7 +79,50 @@ def _resolver_claude_cmd() -> list[str]:
 CLAUDE_CMD: list[str] = _resolver_claude_cmd()
 
 
-def _montar_instrucao(paj_pasta, prompt_content: str, skill_slug: str | None) -> str:
+def _formatar_plano_aprovado(plano: dict) -> str:
+    """Formata um plano de atuacao (aprovado no fluxo Planejar) como bloco de texto
+    para injetar na instrucao do Claude. Vazio se o plano nao tiver conteudo util."""
+    if not plano or not isinstance(plano, dict):
+        return ""
+    linhas = ["PLANO DE ATUACAO APROVADO PELO DEFENSOR (SIGA-O):"]
+    if plano.get("tipo_atuacao"):
+        linhas.append(f"- Tipo de atuacao: {plano['tipo_atuacao']}")
+    if plano.get("tipo_peca"):
+        linhas.append(f"- Peca a elaborar: {plano['tipo_peca']}")
+    if plano.get("decisao_recorrida_descricao"):
+        linhas.append(f"- Decisao/ato sob analise: {plano['decisao_recorrida_descricao']}")
+    if plano.get("decisao_recorrida_arquivo"):
+        linhas.append(f"- Arquivo da decisao: {plano['decisao_recorrida_arquivo']}")
+    if plano.get("analise_completa"):
+        linhas.append(f"- Analise do Defensor: {plano['analise_completa']}")
+    fontes = plano.get("fontes_auxiliares") or []
+    if fontes:
+        linhas.append("- Fontes a considerar:")
+        for fonte in fontes:
+            ref = fonte.get("ref", "")
+            tipo = fonte.get("tipo", "")
+            arq = fonte.get("arquivo", "")
+            sufixo = f" [arquivo: {arq}]" if arq else ""
+            linhas.append(f"    - ({tipo}) {ref}{sufixo}")
+    alertas = plano.get("alertas") or []
+    if alertas:
+        linhas.append("- Alertas:")
+        for a in alertas:
+            linhas.append(f"    - {a}")
+    linhas.append(
+        "\nEste plano foi revisado e aprovado por um humano. Respeite o tipo de "
+        "atuacao e a peca definidos; nao reabra a decisao se o Defensor ja optou "
+        "por nao atuar ou arquivar."
+    )
+    return "\n".join(linhas) + "\n\n"
+
+
+def _montar_instrucao(
+    paj_pasta,
+    prompt_content: str,
+    skill_slug: str | None,
+    plano: dict | None = None,
+) -> str:
     """Monta o prompt inicial enviado ao Claude Code CLI.
 
     Se `skill_slug` vier preenchida, instrui o Claude a invocar a skill correspondente
@@ -88,7 +131,11 @@ def _montar_instrucao(paj_pasta, prompt_content: str, skill_slug: str | None) ->
 
     Se `skill_slug` vier None (fallback), mantem o comportamento antigo de decisao
     autonoma pelo Claude.
+
+    Se `plano` vier preenchido (fluxo Planejar -> aprovar -> elaborar), o plano
+    aprovado pelo Defensor e' injetado no topo para guiar a elaboracao.
     """
+    bloco_plano = _formatar_plano_aprovado(plano) if plano else ""
     if skill_slug:
         desc = skill_descricao(skill_slug)
         cabecalho = (
@@ -114,7 +161,8 @@ def _montar_instrucao(paj_pasta, prompt_content: str, skill_slug: str | None) ->
         tipo_saida = "[DESPACHO | PETICAO | RECURSO | MANIFESTACAO | OFICIO | ORIENTACAO | OUTRO — <tipo>]"
 
     return (
-        cabecalho
+        bloco_plano
+        + cabecalho
         + "**OBRIGATORIO**: produzir o TEXTO da peca/despacho/oficio/orientacao, em "
         "linguagem apropriada, pronto pra copiar no SISDPU / protocolar / expedir. "
         "Nao basta dizer o que fazer — redija o produto final.\n\n"
@@ -208,6 +256,23 @@ class ChatSession:
             self.output_queue.put({"type": "done"})
             return False
 
+    @staticmethod
+    def _carregar_plano_aprovado(paj_pasta: Path) -> dict | None:
+        """Le o plano aprovado (plano_elaboracao.json) da pasta do PAJ, se existir.
+
+        Retorna o dict do plano (campo `plano` do payload) ou None. Nunca levanta —
+        elaboracao sem plano e' o caminho padrao e deve continuar funcionando.
+        """
+        f = paj_pasta / "plano_elaboracao.json"
+        if not f.exists():
+            return None
+        try:
+            payload = json.loads(f.read_text(encoding="utf-8"))
+            plano = payload.get("plano") if isinstance(payload, dict) else None
+            return plano if isinstance(plano, dict) else None
+        except Exception:
+            return None
+
     def start(self) -> bool:
         """Inicia o subprocess Claude Code em modo stream-json."""
         prompt_path = PAJS_DIR / self.paj_norm / "PROMPT_MAX.md"
@@ -222,10 +287,13 @@ class ChatSession:
         # Envia PROMPT_MAX como prompt inicial
         prompt_content = prompt_path.read_text(encoding="utf-8", errors="replace")
         paj_pasta = PAJS_DIR / self.paj_norm
+        # Plano aprovado no fluxo Planejar (se houver) — guia a elaboracao.
+        plano = self._carregar_plano_aprovado(paj_pasta)
         instrucao = _montar_instrucao(
             paj_pasta=paj_pasta,
             prompt_content=prompt_content,
             skill_slug=self.skill_slug,
+            plano=plano,
         )
         # NAO fecha stdin — mantem aberto pra multi-turn
         self.status = "running"
