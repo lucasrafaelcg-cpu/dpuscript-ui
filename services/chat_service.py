@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 import threading
 import queue
+from pathlib import Path
 
 from config import OFICIO_GERAL, PAJS_DIR
 from services import historico
@@ -17,20 +19,61 @@ import contextlib
 
 
 def _resolver_claude_cmd() -> list[str]:
-    """Resolve o comando base pra invocar o Claude CLI.
+    r"""Resolve o comando base pra invocar o Claude CLI.
 
-    No Windows, o binario `claude` instalado via npm vem como `claude.cmd`
-    (batch wrapper). subprocess.Popen sem shell=True NAO resolve .cmd/.bat
-    via PATH — so .exe — entao resolvemos o caminho completo via shutil.which
-    (que respeita PATHEXT) e, se for batch, prefixamos com `cmd.exe /c`
-    (exigencia do CreateProcess pra scripts .cmd/.bat).
+    Ordem de busca:
+      1. `CLAUDE_CODE_EXECPATH` (env var canonica setada pelo proprio Claude Code
+         quando o servidor e' lancado de dentro de uma sessao do Claude Code).
+      2. `shutil.which("claude")` — pega o instalador via npm (`claude.cmd`) ou
+         o nativo (`claude.exe`) quando estao no PATH.
+      3. Caminhos bem conhecidos no Windows:
+         - `%USERPROFILE%\.local\bin\claude.exe` (instalador nativo Anthropic)
+         - `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude-code\<versao>\claude.exe`
+           (Claude Desktop / MSIX — versao mais recente).
+
+    Sem isso, instalacoes via Desktop App ficavam invisiveis (PATH nao contem
+    o caminho do MSIX) e toda elaboracao morria com `FileNotFoundError`.
+
+    No Windows, `claude.cmd` (npm) precisa de `cmd.exe /c` pra ser executavel
+    pelo Popen sem shell=True. `.exe` roda direto.
     """
+    # 1. Hint do proprio Claude Code
+    env_hint = os.environ.get("CLAUDE_CODE_EXECPATH", "").strip()
+    if env_hint and Path(env_hint).is_file():
+        return [env_hint]
+
+    # 2. PATH (npm global ou instalador no PATH)
     resolved = shutil.which("claude")
-    if not resolved:
-        return ["claude"]  # fallback — Popen vai falhar com mensagem clara
-    if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
-        return ["cmd.exe", "/c", resolved]
-    return [resolved]
+    if resolved:
+        if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
+            return ["cmd.exe", "/c", resolved]
+        return [resolved]
+
+    # 3. Locais bem conhecidos (Windows)
+    if sys.platform == "win32":
+        # Instalador nativo Anthropic
+        nativo = Path.home() / ".local" / "bin" / "claude.exe"
+        if nativo.is_file():
+            return [str(nativo)]
+        # Claude Desktop / MSIX — pasta versionada, pega a mais recente
+        local_app = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+        packages = local_app / "Packages"
+        if packages.is_dir():
+            for pkg in packages.glob("Claude_*"):
+                cc_dir = pkg / "LocalCache" / "Roaming" / "Claude" / "claude-code"
+                if not cc_dir.is_dir():
+                    continue
+                versoes = sorted(
+                    (d for d in cc_dir.iterdir() if d.is_dir()),
+                    key=lambda p: p.name,
+                    reverse=True,
+                )
+                for v in versoes:
+                    exe = v / "claude.exe"
+                    if exe.is_file():
+                        return [str(exe)]
+
+    return ["claude"]  # fallback — Popen vai falhar com mensagem clara
 
 
 CLAUDE_CMD: list[str] = _resolver_claude_cmd()

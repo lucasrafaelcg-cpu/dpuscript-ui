@@ -48,14 +48,19 @@ GRUPOS = [
 # acionadas por outros caminhos, nao pelo dropdown "Elaborar".
 SKILL_OVERRIDES: dict[str, dict] = {
     # --- Triagem e análise ---
+    "firac":                      {"label": "FIRAC — análise integrada",         "areas": ["*"],                                    "grupo": "Triagem e análise"},
     "firac-triagem":              {"label": "FIRAC / triagem",                   "areas": ["*"],                                    "grupo": "Triagem e análise"},
     "analisar-processo":          {"label": "Analisar processo",                 "areas": ["*"],                                    "grupo": "Triagem e análise"},
     "hipossuficiencia":           {"label": "Avaliar hipossuficiência",          "areas": ["*"],                                    "grupo": "Triagem e análise"},
+    "triagem-civel":              {"label": "Triagem cível (novo caso)",         "areas": ["Civel", "Administrativo", "Saude"],     "grupo": "Triagem e análise"},
+    "triagem-criminal":           {"label": "Triagem criminal (novo caso)",      "areas": ["Criminal"],                             "grupo": "Triagem e análise"},
+    "triagem-previdenciaria":     {"label": "Triagem previdenciária (novo caso)", "areas": ["Previdenciario"],                      "grupo": "Triagem e análise"},
 
     # --- Ação extrajudicial ---
     "oficios":                    {"label": "Ofício extrajudicial",              "areas": ["*"],                                    "grupo": "Ação extrajudicial"},
 
     # --- Petição inicial ---
+    "peticao-dpu":                {"label": "Peça no padrão DPU",                "areas": ["*"],                                    "grupo": "Petição inicial"},
     "peticoes-iniciais":          {"label": "Petição inicial (cível)",           "areas": ["Civel", "Administrativo"],              "grupo": "Petição inicial"},
     "saude-tema-1234":            {"label": "Inicial de saúde (Tema 1234/6)",    "areas": ["Saude"],                                "grupo": "Petição inicial"},
     "saude-geral":                {"label": "Saúde — peça geral",                "areas": ["Saude"],                                "grupo": "Petição inicial"},
@@ -82,6 +87,7 @@ SKILL_OVERRIDES: dict[str, dict] = {
 
     # --- Despacho SIS ---
     "despacho-sis":               {"label": "Despacho SIS",                      "areas": ["*"],                                    "grupo": "Despacho SIS"},
+    "despacho-administrativo":    {"label": "Despacho administrativo (PAJ)",     "areas": ["*"],                                    "grupo": "Despacho SIS"},
 
     # --- Utilidades ---
     "melhorar-textos":            {"label": "Melhorar textos",                   "areas": ["*"],                                    "grupo": "Utilidades"},
