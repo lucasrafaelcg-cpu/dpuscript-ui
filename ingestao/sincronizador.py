@@ -725,6 +725,25 @@ async def _processar_paj_pos_detalhamento(
             _append_prazo(p)
         if prazos_detectados:
             log(f"  [prazos] {len(prazos_detectados)} prazo(s) novo(s) detectado(s) — aguardando /sync_calendar")
+
+        # Gatilho leve PJe/TRF3: se há intimação nova num processo do TRF3 1g,
+        # sinaliza na metadata para a UI destacar. NÃO abre Chrome nem baixa nada
+        # aqui — o defensor puxa as peças sob demanda (botão 'Puxar peças do PJe').
+        _proc = re.sub(r"\D", "", metadata.get("processo_judicial", "") or "")
+        if prazos_detectados and len(_proc) == 20 and _proc[13:14] == "4" and _proc[14:16] == "03":
+            _p0 = prazos_detectados[0]
+            metadata["pje_intimacao_pendente"] = {
+                "numero": metadata.get("processo_judicial", ""),
+                "data": _p0.get("data_mov", ""),
+                "prazo_dias": _p0.get("prazo_dias"),
+                "data_alvo": _p0.get("data_alvo", ""),
+                "detectado_em": _p0.get("detectado_em", ""),
+            }
+            (pasta / "metadata.json").write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+            log("  [pje] intimação TRF3 sinalizada — use 'Puxar peças do PJe' no PAJ")
     except Exception as e:
         log(f"  [prazos] erro ao detectar: {type(e).__name__}: {e}")
 

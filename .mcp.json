@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pje-trf3": {
+      "command": "C:\\DPU\\pje-mcp-trf3\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\DPU\\pje-mcp-trf3\\server.py"]
+    }
+  }
+}

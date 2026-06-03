@@ -28,5 +28,16 @@ logs/
 # Conversas do chat livre — historico local do usuario, nao versionar
 data/
 
+# Pecas baixadas no teste de conexao PJe/MNI — conteudo processual, nao versionar
+_pje_teste/
+
+# Sessao persistente do navegador no acesso ao PJe (cookies/login) — SENSIVEL,
+# contem credenciais de sessao. NUNCA versionar.
+.pje_session/
+
 # Claude Code — configuracoes locais especificas da maquina (paths reais, PAJs, etc.)
 .claude/settings.local.json
+
+# Copia de desenvolvimento do MCP PJe — redundante (canonico em C:\DPU\pje-mcp-trf3),
+# contem cache de sessao e backups .orig. NAO versionar; usar o pacote canonico.
+mcp_pje_trf3/

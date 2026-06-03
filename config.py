@@ -36,6 +36,63 @@ TIMEOUT_OCR_POR_PAGINA_SEG = int(os.getenv("TIMEOUT_OCR_POR_PAGINA_SEG", "30"))
 # Default: <OFICIO_GERAL>/Peças Feitas
 DOCGEN_OUT_DIR = Path(os.getenv("DOCGEN_OUT_DIR", str(OFICIO_GERAL / "Peças Feitas")))
 
+# ---------------------------------------------------------------------------
+# Integracao PJe / MNI (Modelo Nacional de Interoperabilidade) — SOMENTE LEITURA
+# ---------------------------------------------------------------------------
+# Consulta processual no PJe via webservice MNI (operacao consultarProcesso).
+# NAO ha peticionamento/escrita: o cliente so implementa consultarProcesso.
+#
+# As credenciais (idConsultante/senhaConsultante) sao institucionais da DPU,
+# habilitadas pelo tribunal. Ficam SO no .env — nunca no codigo. Carregadas
+# lazy: so validadas quando uma consulta e' efetivamente disparada.
+#
+# Endpoint padrao: TRF3 1o grau (cobre Vara Federal de Osasco e o JEF de Osasco).
+# Para 2o grau (TRF3), troque PJE_MNI_WSDL no .env.
+PJE_MNI_WSDL = os.getenv(
+    "PJE_MNI_WSDL",
+    "https://pje1g.trf3.jus.br/pje/intercomunicacao?wsdl",
+)
+PJE_MNI_ID_CONSULTANTE = os.getenv("PJE_MNI_ID_CONSULTANTE", "")
+PJE_MNI_SENHA_CONSULTANTE = os.getenv("PJE_MNI_SENHA_CONSULTANTE", "")
+# Verificacao de certificado TLS do servidor. SEMPRE True em producao; so
+# coloque "false" no .env para diagnostico pontual contra ambiente de
+# homologacao com certificado autoassinado.
+PJE_MNI_VERIFY_TLS = os.getenv("PJE_MNI_VERIFY_TLS", "true").strip().lower() != "false"
+# Timeout (segundos) das chamadas SOAP ao MNI.
+PJE_MNI_TIMEOUT_SEG = int(os.getenv("PJE_MNI_TIMEOUT_SEG", "60"))
+# Quantas pecas mais recentes baixar por consulta (protege contra processos
+# gigantes). As N mais recentes sao priorizadas.
+PJE_MAX_PECAS = int(os.getenv("PJE_MAX_PECAS", "15"))
+
+# ---------------------------------------------------------------------------
+# Integracao PJe via navegador (Playwright) — caminho alternativo ao MNI.
+# ---------------------------------------------------------------------------
+# Usa LOGIN MANUAL + SESSAO PERSISTENTE: o navegador abre, o usuario faz login
+# uma vez (senha OU certificado), e a sessao (cookies) fica salva localmente em
+# PJE_WEB_USER_DATA_DIR. A SENHA NUNCA e' digitada nem armazenada pelo codigo —
+# por isso nao ha variavel de senha aqui. O diretorio de sessao e' ignorado
+# pelo git (.gitignore), entao nada sensivel vai para o repositorio.
+PJE_WEB_LOGIN_URL = os.getenv(
+    "PJE_WEB_LOGIN_URL",
+    "https://pje1g.trf3.jus.br/pje/login.seam",
+)
+# Host autenticado do PJe — usado para detectar que o login terminou (saiu do
+# dominio do SSO e voltou para o PJe).
+PJE_WEB_HOST = os.getenv("PJE_WEB_HOST", "pje1g.trf3.jus.br")
+# Diretorio LOCAL da sessao persistente do navegador (cookies/login). Sensivel —
+# fica fora do git. Default: <raiz do projeto>/.pje_session
+PJE_WEB_USER_DATA_DIR = Path(
+    os.getenv("PJE_WEB_USER_DATA_DIR", str(Path(__file__).parent / ".pje_session"))
+)
+# Tempo maximo (segundos) que o sistema aguarda voce concluir o login manual.
+PJE_WEB_LOGIN_TIMEOUT_SEG = int(os.getenv("PJE_WEB_LOGIN_TIMEOUT_SEG", "300"))
+# URL da Consulta Processual autenticada (onde se digita o numero do processo).
+# Ajustavel: o caminho exato pode variar por versao do PJe/TRF3.
+PJE_WEB_CONSULTA_URL = os.getenv(
+    "PJE_WEB_CONSULTA_URL",
+    "https://pje1g.trf3.jus.br/pje/Processo/ConsultaProcesso/listView.seam",
+)
+
 
 def validar_paths() -> list[str]:
     """Verifica que OFICIO_GERAL/PAJS_DIR existem. Retorna lista de avisos

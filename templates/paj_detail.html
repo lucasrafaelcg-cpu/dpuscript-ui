@@ -144,6 +144,30 @@
                 </div>
             </div>
 
+            <!-- Situação processual / Peças do PJe (somente processos do TRF3 1º grau) -->
+            {% if meta.processo_judicial and '.4.03.' in meta.processo_judicial %}
+            <div class="join">
+                <button class="join-item btn btn-sm btn-outline normal-case gap-1.5"
+                        onclick="situacaoProcessual('{{ paj_norm }}')"
+                        title="Consulta as últimas movimentações do processo no PJe/TRF3 (abre o Chrome por alguns segundos)">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 5.25h16.5M3.75 6.75h16.5"></path></svg>
+                    Situação Processual
+                </button>
+                <button class="join-item btn btn-sm btn-outline normal-case gap-1.5"
+                        onclick="puxarPecasPje('{{ paj_norm }}')"
+                        title="Baixa as peças recentes do processo no PJe/TRF3, roda OCR e prepara para análise">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"></path></svg>
+                    Puxar peças do PJe
+                </button>
+            </div>
+            {% if meta.pje_intimacao_pendente %}
+            <div class="badge badge-warning gap-1 text-xs"
+                 title="Intimação nova detectada num processo do TRF3 — use 'Puxar peças do PJe'">
+                ⚠ Intimação nova — puxar peças
+            </div>
+            {% endif %}
+            {% endif %}
+
             <!-- Watchlist toggle -->
             <div x-data="watchlistToggle('{{ paj_norm }}')" x-init="init()" class="flex items-center gap-2">
                 <template x-if="!watched">

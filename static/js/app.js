@@ -418,6 +418,110 @@ function baixarAnexosDesde(pajNorm) {
     };
 }
 
+/* ===== Integração PJe/TRF3 (reusa o sync-modal para o log SSE) ===== */
+function _pjeStream(pajNorm, url, titulo, onResult) {
+    let modal = document.getElementById('sync-modal');
+    let logEl = document.getElementById('sync-log');
+    let statusEl = document.getElementById('sync-status');
+    let titleEl = document.getElementById('sync-title');
+    let closeBtn = document.getElementById('sync-close-btn');
+    if (!modal || !logEl) { showToast('Modal de sync não encontrado', 'error'); return; }
+
+    logEl.textContent = '';
+    if (titleEl) titleEl.textContent = titulo;
+    statusEl.textContent = 'consultando PJe... (uma janela do Chrome vai abrir)';
+    statusEl.className = 'badge badge-sm badge-warning';
+    closeBtn.disabled = true;
+    if (typeof _syncBtnCancel === 'function') _syncBtnCancel(false);
+    modal.showModal();
+
+    if (_syncSource) { _syncSource.close(); _syncSource = null; }
+    _syncSource = new EventSource(url);
+
+    _syncSource.addEventListener('log', function(e) {
+        logEl.textContent += e.data + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+    });
+
+    _syncSource.addEventListener('result', function(e) {
+        let res = {};
+        try { res = JSON.parse(e.data); } catch (_) {}
+        if (typeof onResult === 'function') onResult(res, logEl);
+    });
+
+    _syncSource.addEventListener('done', function(e) {
+        statusEl.textContent = 'concluído';
+        statusEl.className = 'badge badge-sm badge-success';
+        closeBtn.disabled = false;
+        if (_syncSource) { _syncSource.close(); _syncSource = null; }
+    });
+
+    _syncSource.onerror = function() {
+        statusEl.textContent = 'erro/desconectado';
+        statusEl.className = 'badge badge-sm badge-error';
+        closeBtn.disabled = false;
+        if (_syncSource) { _syncSource.close(); _syncSource = null; }
+    };
+}
+
+/* Botão "Situação Processual": últimas movimentações + intimação/prazo */
+function situacaoProcessual(pajNorm) {
+    _pjeStream(pajNorm,
+        '/api/paj/' + encodeURIComponent(pajNorm) + '/pje/situacao/stream',
+        'Situação processual no PJe/TRF3',
+        function(res, logEl) {
+            logEl.textContent += '\n========================================\n';
+            if (!res.ok) {
+                logEl.textContent += 'NÃO foi possível: ' + (res.erro || '') + '\n';
+                if (res.sem_habilitacao) {
+                    logEl.textContent += '→ Você não está habilitado neste processo no PJe (use "Solicitar habilitação").\n';
+                }
+                return;
+            }
+            if (res.expedientes && res.expedientes.length) {
+                logEl.textContent += 'EXPEDIENTES / INTIMAÇÃO / PRAZO:\n';
+                res.expedientes.forEach(function(l) { logEl.textContent += '  • ' + l + '\n'; });
+            }
+            if (res.movimentos && res.movimentos.length) {
+                logEl.textContent += '\nÚLTIMAS MOVIMENTAÇÕES:\n';
+                res.movimentos.forEach(function(m) {
+                    logEl.textContent += '  • [' + (m.data || '') + '] ' + (m.descricao || m.titulo || '') + '\n';
+                });
+            }
+            logEl.scrollTop = logEl.scrollHeight;
+        });
+}
+
+/* Botão "Puxar peças do PJe": baixa peças recentes, OCR e prepara análise */
+function puxarPecasPje(pajNorm) {
+    _pjeStream(pajNorm,
+        '/api/paj/' + encodeURIComponent(pajNorm) + '/pje/pecas/stream',
+        'Puxar peças do PJe/TRF3',
+        function(res, logEl) {
+            logEl.textContent += '\n========================================\n';
+            if (!res.ok) {
+                logEl.textContent += 'NÃO foi possível: ' + (res.erro || '') + '\n';
+                if (res.sem_habilitacao) {
+                    logEl.textContent += '→ Você não está habilitado neste processo no PJe.\n';
+                }
+                return;
+            }
+            logEl.textContent += 'Peças baixadas: ' + (res.arquivo || '') + ' (' + (res.tamanho || 0) + ' bytes)\n';
+            logEl.textContent += 'OCR: ' + (res.chars_ocr || 0) + ' caracteres. Digest _situacao_pje.md gravado.\n';
+            logEl.textContent += 'Pronto para análise — recarregando a página...\n';
+            logEl.scrollTop = logEl.scrollHeight;
+            showToast('Peças do PJe prontas — recarregando', 'success');
+            setTimeout(function() {
+                var modal = document.getElementById('sync-modal');
+                if (modal && modal.open) {
+                    modal.addEventListener('close', function once() {
+                        modal.removeEventListener('close', once); window.location.reload();
+                    });
+                } else { window.location.reload(); }
+            }, 800);
+        });
+}
+
 /* Docgen — streaming SSE do gerar_docx.py / gerar_peticao.py */
 let _docgenSource = null;
 

@@ -98,6 +98,14 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
         for p in pecas_antes[:20]:
             partes.append(f"- `{p['nome']}`")
 
+    # Situação do processo no PJe (peças/intimação) — gravada por
+    # services/pje_service.puxar_pecas() quando o defensor puxa do TRF3.
+    pje_md = pasta / "_situacao_pje.md"
+    if pje_md.exists():
+        partes.append("")
+        partes.append("## Situação do processo no PJe (peças e intimação)")
+        partes.append(ler_texto_robusto(pje_md).strip() or "(vazio)")
+
     partes.append("")
     partes.append("---")
     partes.append("")

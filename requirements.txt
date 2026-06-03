@@ -10,3 +10,6 @@ playwright>=1.40
 pymupdf>=1.23
 pytesseract>=0.3.10
 Pillow>=10.0
+
+# Integracao PJe / MNI (consulta processual SOMENTE LEITURA — webservice SOAP)
+zeep>=4.2
