@@ -14,6 +14,7 @@ from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
 from services import pje_service
+from services.paj_service import PajNorm
 
 router = APIRouter()
 
@@ -51,12 +52,12 @@ async def _stream(func, paj_norm: str):
 
 
 @router.get("/api/paj/{paj_norm}/pje/situacao/stream")
-async def pje_situacao(paj_norm: str):
+async def pje_situacao(paj_norm: PajNorm):
     """Botão 'Situação Processual': últimas movimentações + intimação/prazo."""
     return EventSourceResponse(_stream(pje_service.situacao_processual, paj_norm))
 
 
 @router.get("/api/paj/{paj_norm}/pje/pecas/stream")
-async def pje_pecas(paj_norm: str):
+async def pje_pecas(paj_norm: PajNorm):
     """Botão 'Puxar peças do PJe': baixa peças recentes, OCR e grava digest."""
     return EventSourceResponse(_stream(pje_service.puxar_pecas, paj_norm))

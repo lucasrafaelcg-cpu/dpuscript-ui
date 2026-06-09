@@ -729,8 +729,8 @@ async def _processar_paj_pos_detalhamento(
         # Gatilho leve PJe/TRF3: se há intimação nova num processo do TRF3 1g,
         # sinaliza na metadata para a UI destacar. NÃO abre Chrome nem baixa nada
         # aqui — o defensor puxa as peças sob demanda (botão 'Puxar peças do PJe').
-        _proc = re.sub(r"\D", "", metadata.get("processo_judicial", "") or "")
-        if prazos_detectados and len(_proc) == 20 and _proc[13:14] == "4" and _proc[14:16] == "03":
+        from services.pje_service import eh_trf3_1g as _eh_trf3_1g
+        if prazos_detectados and _eh_trf3_1g(metadata.get("processo_judicial", "")):
             _p0 = prazos_detectados[0]
             metadata["pje_intimacao_pendente"] = {
                 "numero": metadata.get("processo_judicial", ""),

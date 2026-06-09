@@ -420,6 +420,12 @@ function baixarAnexosDesde(pajNorm) {
 
 /* ===== Integração PJe/TRF3 (reusa o sync-modal para o log SSE) ===== */
 function _pjeStream(pajNorm, url, titulo, onResult) {
+    // Uma stream por vez: se há sincronização (ou outra operação PJe) ativa,
+    // abrir uma nova fecharia o EventSource dela e o defensor perderia o log.
+    if (_syncSource) {
+        showToast('Já há uma operação em andamento — aguarde concluir', 'warning');
+        return;
+    }
     let modal = document.getElementById('sync-modal');
     let logEl = document.getElementById('sync-log');
     let statusEl = document.getElementById('sync-status');

@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 from collections.abc import Callable
 
@@ -32,6 +33,15 @@ from config import PAJS_DIR, TIMEOUT_OCR_POR_PAGINA_SEG
 PJE_MCP_DIR = Path(os.getenv("PJE_MCP_DIR", r"C:\DPU\pje-mcp-trf3"))
 
 _mcp_mod = None
+
+# O MCP abre o Chrome REAL com sessão persistente única — duas operações
+# simultâneas disputariam a mesma janela/perfil. O lock garante uma por vez;
+# a segunda recebe erro amigável em vez de corromper a sessão.
+_PJE_LOCK = threading.Lock()
+_ERRO_OCUPADO = (
+    "Já existe uma operação do PJe em andamento (o Chrome só comporta uma por "
+    "vez). Aguarde a conclusão e tente novamente."
+)
 
 
 def _importar_mcp():
@@ -67,6 +77,16 @@ def _metadata(paj_norm: str) -> dict:
         return {}
 
 
+def eh_trf3_1g(processo: str | None) -> bool:
+    """True se o número CNJ é da Justiça Federal (J=4) do TRF3 (TR=03).
+
+    Regra ÚNICA de detecção — usada aqui, no sincronizador e nos templates
+    (filtro Jinja registrado no app.py). Aceita número formatado ou só dígitos.
+    """
+    d = re.sub(r"\D", "", processo or "")
+    return len(d) == 20 and d[13:14] == "4" and d[14:16] == "03"
+
+
 def numero_trf3_do_paj(paj_norm: str) -> str | None:
     """Número do processo judicial vinculado ao PAJ, se for TRF3 1º grau.
 
@@ -74,10 +94,7 @@ def numero_trf3_do_paj(paj_norm: str) -> str | None:
     ou se não for TRF3 1g (justiça=4, tribunal=03).
     """
     proc = (_metadata(paj_norm).get("processo_judicial") or "").strip()
-    d = re.sub(r"\D", "", proc)
-    if len(d) == 20 and d[13:14] == "4" and d[14:16] == "03":
-        return proc
-    return None
+    return proc if eh_trf3_1g(proc) else None
 
 
 def _intervalo_recente(paj_norm: str, dias_antes: int = 5, janela_padrao: int = 45) -> tuple[str, str]:
@@ -99,6 +116,10 @@ def _intervalo_recente(paj_norm: str, dias_antes: int = 5, janela_padrao: int = 
         inicio = base - _dt.timedelta(days=dias_antes)
     else:
         inicio = hoje - _dt.timedelta(days=janela_padrao)
+    # Data de intimação malformada/futura no metadata não pode gerar um
+    # intervalo invertido (inicio > fim) — o PJe rejeitaria a busca.
+    if inicio > hoje:
+        inicio = hoje - _dt.timedelta(days=janela_padrao)
     return inicio.strftime("%d/%m/%Y"), hoje.strftime("%d/%m/%Y")
 
 
@@ -110,18 +131,75 @@ def _extrair_expedientes(html: str) -> list[str]:
     except ImportError:
         return []
     txt = BeautifulSoup(html, "html.parser").get_text("\n")
-    linhas = [l.strip() for l in txt.split("\n") if l.strip()]
+    linhas = [ln.strip() for ln in txt.split("\n") if ln.strip()]
     rgx = re.compile(
         r"intima|ci[êe]ncia|prazo|manifesta|despacho|decis|senten|aberto|fechado|"
         r"\d{2}/\d{2}/\d{4}", re.I)
     vistos: list[str] = []
-    for l in linhas:
-        if rgx.search(l) and l not in vistos:
-            vistos.append(l[:200])
+    for ln in linhas:
+        if rgx.search(ln) and ln not in vistos:
+            vistos.append(ln[:200])
     return vistos[:40]
 
 
 # --- Operações (SÍNCRONAS — rodar em thread via asyncio.to_thread) -----------
+
+def _login_e_resolver(numero: str, emit: Callable[[str], None]) -> dict:
+    """Autentica no PJe e resolve o número CNJ em id interno.
+
+    Retorna {"mcp": mod, "idp": str} em sucesso, ou {"erro": ..., [
+    "sem_habilitacao": bool]} em falha — caller repassa direto à UI.
+    """
+    mcp = _importar_mcp()
+    emit("Autenticando no PJe (TOTP)...")
+    login = mcp.login_automatico()
+    if not login.get("sucesso"):
+        return {"erro": f"Falha no login: {login.get('erro') or login.get('mensagem')}"}
+
+    emit(f"Resolvendo processo {numero} ...")
+    res = mcp.consultar_processo_numero(numero)
+    if not res.get("encontrado"):
+        return {"erro": res.get("erro", "processo não encontrado"),
+                "sem_habilitacao": bool(res.get("sem_habilitacao"))}
+    return {"mcp": mcp, "idp": res["id_processo"]}
+
+
+def _expedientes_do_processo(mcp, idp: str, numero: str,
+                             emit: Callable[[str], None]) -> list[str]:
+    """Linhas relevantes da aba Expedientes (intimação/prazo/ciência).
+
+    Usa `_abrir_aba_expedientes` do MCP (interno — pode sumir numa atualização
+    do pacote); qualquer falha vira aviso no log, nunca quebra a operação.
+    """
+    abrir = getattr(mcp, "_abrir_aba_expedientes", None)
+    if abrir is None:
+        emit("[aviso] expedientes: função indisponível nesta versão do MCP")
+        return []
+    try:
+        html, _vs = abrir(idp, numero)
+        return _extrair_expedientes(html)
+    except Exception as e:
+        emit(f"[aviso] expedientes: {type(e).__name__}: {e}")
+        return []
+
+
+def _limpar_flag_intimacao(paj_norm: str) -> None:
+    """Após puxar as peças, a intimação deixa de ser 'pendente': arquiva o flag
+    em `pje_ultima_intimacao` e registra quando as peças foram puxadas — o
+    badge ⚠ da UI some no próximo render."""
+    pasta = PAJS_DIR / paj_norm
+    meta = _metadata(paj_norm)
+    if not meta:
+        return
+    flag = meta.pop("pje_intimacao_pendente", None)
+    if flag:
+        meta["pje_ultima_intimacao"] = flag
+    meta["pje_pecas_puxadas_em"] = _dt.datetime.now().isoformat(timespec="seconds")
+    (pasta / "metadata.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+
 
 def situacao_processual(paj_norm: str, emit: Callable[[str], None]) -> dict:
     """Login + resolve + lê expedientes/movimentações. Retorna dict resumo.
@@ -131,27 +209,23 @@ def situacao_processual(paj_norm: str, emit: Callable[[str], None]) -> dict:
     numero = numero_trf3_do_paj(paj_norm)
     if not numero:
         return {"ok": False, "erro": "PAJ sem processo do TRF3 1º grau vinculado."}
+    if not _PJE_LOCK.acquire(blocking=False):
+        return {"ok": False, "erro": _ERRO_OCUPADO}
+    try:
+        return _situacao_processual_locked(paj_norm, numero, emit)
+    finally:
+        _PJE_LOCK.release()
 
-    mcp = _importar_mcp()
-    emit("Autenticando no PJe (TOTP)...")
-    login = mcp.login_automatico()
-    if not login.get("sucesso"):
-        return {"ok": False, "erro": f"Falha no login: {login.get('erro') or login.get('mensagem')}"}
 
-    emit(f"Resolvendo processo {numero} ...")
-    res = mcp.consultar_processo_numero(numero)
-    if not res.get("encontrado"):
-        return {"ok": False, "erro": res.get("erro", "processo não encontrado"),
-                "sem_habilitacao": bool(res.get("sem_habilitacao"))}
-    idp = res["id_processo"]
+def _situacao_processual_locked(paj_norm: str, numero: str,
+                                emit: Callable[[str], None]) -> dict:
+    sessao = _login_e_resolver(numero, emit)
+    if "erro" in sessao:
+        return {"ok": False, **sessao}
+    mcp, idp = sessao["mcp"], sessao["idp"]
     emit(f"Processo aberto (id {idp}). Lendo expedientes e movimentações...")
 
-    expedientes: list[str] = []
-    try:
-        html, _vs = mcp._abrir_aba_expedientes(idp, numero)
-        expedientes = _extrair_expedientes(html)
-    except Exception as e:
-        emit(f"[aviso] expedientes: {type(e).__name__}: {e}")
+    expedientes = _expedientes_do_processo(mcp, idp, numero, emit)
 
     movimentos: list[dict] = []
     documentos: list[dict] = []
@@ -178,19 +252,20 @@ def puxar_pecas(paj_norm: str, emit: Callable[[str], None]) -> dict:
     numero = numero_trf3_do_paj(paj_norm)
     if not numero:
         return {"ok": False, "erro": "PAJ sem processo do TRF3 1º grau vinculado."}
+    if not _PJE_LOCK.acquire(blocking=False):
+        return {"ok": False, "erro": _ERRO_OCUPADO}
+    try:
+        return _puxar_pecas_locked(paj_norm, numero, emit)
+    finally:
+        _PJE_LOCK.release()
 
-    mcp = _importar_mcp()
-    emit("Autenticando no PJe (TOTP)...")
-    login = mcp.login_automatico()
-    if not login.get("sucesso"):
-        return {"ok": False, "erro": f"Falha no login: {login.get('erro') or login.get('mensagem')}"}
 
-    emit(f"Resolvendo processo {numero} ...")
-    res = mcp.consultar_processo_numero(numero)
-    if not res.get("encontrado"):
-        return {"ok": False, "erro": res.get("erro", "processo não encontrado"),
-                "sem_habilitacao": bool(res.get("sem_habilitacao"))}
-    idp = res["id_processo"]
+def _puxar_pecas_locked(paj_norm: str, numero: str,
+                        emit: Callable[[str], None]) -> dict:
+    sessao = _login_e_resolver(numero, emit)
+    if "erro" in sessao:
+        return {"ok": False, **sessao}
+    mcp, idp = sessao["mcp"], sessao["idp"]
 
     pasta = PAJS_DIR / paj_norm
     destino_dir = pasta / "pecas_pje"
@@ -218,23 +293,19 @@ def puxar_pecas(paj_norm: str, emit: Callable[[str], None]) -> dict:
         emit(f"[aviso] OCR: {type(e).__name__}: {e}")
 
     # Expedientes (intimação/prazo) para o cabeçalho do digest
-    expedientes: list[str] = []
-    try:
-        html, _vs = mcp._abrir_aba_expedientes(idp, numero)
-        expedientes = _extrair_expedientes(html)
-    except Exception:
-        pass
+    expedientes = _expedientes_do_processo(mcp, idp, numero, emit)
 
     # Digest consumido pelo prompt_builder
     linhas = [f"# Situação do processo no PJe — {numero}", "",
               f"_Capturado em {_dt.datetime.now().strftime('%d/%m/%Y %H:%M')} (período {ini} a {fim})._", ""]
     if expedientes:
         linhas += ["## Expedientes / intimação / prazo", ""]
-        linhas += [f"- {l}" for l in expedientes]
+        linhas += [f"- {ln}" for ln in expedientes]
         linhas.append("")
     linhas += ["## Peças (texto OCR)", "", (texto.strip() or "_(sem texto extraído)_")]
     (pasta / "_situacao_pje.md").write_text("\n".join(linhas) + "\n", encoding="utf-8")
 
+    _limpar_flag_intimacao(paj_norm)
     emit("Peças do PJe prontas para análise (_situacao_pje.md gravado).")
     return {"ok": True, "numero": numero, "arquivo": dl.get("arquivo"),
             "tamanho": dl.get("tamanho"), "expedientes": expedientes,

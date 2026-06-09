@@ -66,7 +66,7 @@ _configurar_logging()
 # Versao do painel — fonte unica. Usada pelo FastAPI (OpenAPI/docs) e tambem
 # exposta a todos os templates via Jinja globals (renderizada no rodape da
 # sidebar). Para incrementar: mude aqui e so aqui.
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 app = FastAPI(title="oficio-geral-ui", version=APP_VERSION)
 app.state.jinja = jinja2.Environment(
@@ -137,6 +137,12 @@ def _data_hora_br(valor) -> str:
 app.state.jinja.filters["formatar_area"] = _formatar_area
 app.state.jinja.filters["data_br"] = _data_br
 app.state.jinja.filters["data_hora_br"] = _data_hora_br
+
+# Detecta processo do TRF3 1º grau nos templates (botões do PJe). A regra mora
+# em services/pje_service.eh_trf3_1g — fonte única, mesma do sincronizador.
+from services.pje_service import eh_trf3_1g as _eh_trf3_1g  # noqa: E402
+
+app.state.jinja.filters["eh_trf3_1g"] = _eh_trf3_1g
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.include_router(dashboard_router)
 app.include_router(paj_router)

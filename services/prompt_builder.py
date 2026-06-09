@@ -17,6 +17,11 @@ from config import PAJS_DIR
 
 MAX_MOVIMENTACOES_RESUMO = 8
 
+# O digest do PJe (_situacao_pje.md) contém o OCR integral das peças baixadas —
+# pode passar de centenas de páginas. No PROMPT_MAX entra só o início; o texto
+# completo continua disponível no arquivo, e o aviso aponta para ele.
+MAX_PJE_DIGEST_CHARS = 30_000
+
 
 def _ler_json(path: Path) -> dict | None:
     if not path.exists():
@@ -104,7 +109,16 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
     if pje_md.exists():
         partes.append("")
         partes.append("## Situação do processo no PJe (peças e intimação)")
-        partes.append(ler_texto_robusto(pje_md).strip() or "(vazio)")
+        pje_texto = ler_texto_robusto(pje_md).strip() or "(vazio)"
+        if len(pje_texto) > MAX_PJE_DIGEST_CHARS:
+            pje_texto = pje_texto[:MAX_PJE_DIGEST_CHARS].rstrip() + "..."
+            partes.append(
+                f"> Digest truncado em {MAX_PJE_DIGEST_CHARS} caracteres. O texto "
+                "integral (OCR completo das peças) está em `_situacao_pje.md` "
+                "nesta mesma pasta — leia-o se precisar do inteiro teor."
+            )
+            partes.append("")
+        partes.append(pje_texto)
 
     partes.append("")
     partes.append("---")

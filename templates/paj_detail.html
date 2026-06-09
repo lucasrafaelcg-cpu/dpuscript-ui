@@ -145,7 +145,7 @@
             </div>
 
             <!-- Situação processual / Peças do PJe (somente processos do TRF3 1º grau) -->
-            {% if meta.processo_judicial and '.4.03.' in meta.processo_judicial %}
+            {% if meta.processo_judicial and meta.processo_judicial | eh_trf3_1g %}
             <div class="join">
                 <button class="join-item btn btn-sm btn-outline normal-case gap-1.5"
                         onclick="situacaoProcessual('{{ paj_norm }}')"
