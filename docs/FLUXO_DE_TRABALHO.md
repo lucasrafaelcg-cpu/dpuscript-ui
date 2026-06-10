@@ -51,23 +51,32 @@ em 1 clique — em vez de ele decidir manualmente PAJ por PAJ.
 
 ### Fase 1 — Classificador de eventos (`services/triagem_service.py`)
 
-Função pura `classificar_evento(metadata, movs_antigas, movs_novas, paj_novo) ->
-dict | None`, chamada pelo sincronizador no mesmo ponto onde hoje detecta
-prazos (`ingestao/sincronizador.py`, logo após `detectar_prazos_novos`).
+> **Status: IMPLEMENTADO (v0.5.0)** — classificador em
+> `services/triagem_service.py`, consumido pelo PROMPT_MAX ("Situação do
+> PAJ") como dica heurística. Pendente: gancho no sincronizador (gravar
+> `evento_triagem` na metadata) e fila na UI (Fase 2).
 
-Regras determinísticas (sem IA, auditáveis):
+São **5 fluxos de entrada** (o Defensor acrescentou o 5º ao desenho original):
 
-1. **`abertura_paj`** — a pasta do PAJ não existia antes desta sync
-   (`ja_existia == False`).
-2. **`intimacao`** — prazo novo detectado (já calculado) e/ou movimentação nova
-   casando `intima|cita[çc]|notifica`. Generaliza o gatilho atual do TRF3:
-   o flag `pje_intimacao_pendente` continua, mas vira um *subtipo* (com PJe)
-   do evento `intimacao` (sem PJe = outros tribunais).
-3. **`retorno_assistido`** — movimentação nova de atendimento/contato cujo
-   texto case `atendimento|retorno|compareceu|juntada pelo assistido|mensagem
-   do assistido` (calibrar com os tipos reais de movimentação do SISDPU).
-4. **`resposta_oficio`** — movimentação/anexo novo casando `resposta de
-   of[íi]cio|of[íi]cio resposta` ou remetente órgão externo (INSS, CEF...).
+1. **`abertura_paj`** — abertura ou **redistribuição à unidade de Osasco**
+   (`abertura de PAJ|redistribui|distribuição do PAJ`); no sync, também
+   quando a pasta do PAJ não existia antes (`ja_existia == False`).
+2. **`retorno_assistido`** — `atendimento de retorno` na FASE ou na descrição.
+   Exemplos reais (capturados em `tests/test_triagem_service.py`):
+   - Fase "Concluso ao defensor" / descrição "Atendimento de retorno com
+     juntada de documentos";
+   - Fase "Atendimento de retorno" / descrição "Fase incluída automaticamente,
+     verificar fase anterior" (o sinal está na FASE);
+   - Fase "Concluso ao defensor" / descrição "Atendimento de retorno.".
+3. **`intimacao`** — `intima|citação|notifica`. O flag `pje_intimacao_pendente`
+   do TRF3 continua como subtipo (com PJe).
+4. **`resposta_oficio`** — `resposta de ofício|ofício resposta|resposta do órgão`.
+5. **`controle_prazo`** — envio automático pelo sistema ao encerrar um prazo de
+   controle (`controle de prazo|decurso de prazo|prazo encerrado/vencido`).
+
+Ruído tratado: o classificador percorre as movimentações da mais recente para
+trás pulando conclusões genéricas — PAJs encaminhados em duplicidade têm uma
+"conclusão" posterior ao evento real, e ela não pode mascarar o motivo.
 
 Persistência (mesmo padrão dos prazos):
 - `metadata.json` do PAJ → `evento_triagem: {tipo, data, seq_origem,
@@ -136,8 +145,11 @@ rollback simples, como feito na v0.4.1.
 
 ## Decisões em aberto (validar com o uso real)
 
-1. Quais tipos de movimentação do SISDPU identificam com segurança "retorno
-   do assistido"? (coletar exemplos reais antes de fixar o regex)
+1. ~~Quais movimentações identificam "retorno do assistido"?~~ **Respondido**
+   (jun/2026): "Atendimento de retorno" na fase ou na descrição — 3 exemplos
+   reais fixados nos testes.
 2. "Resposta de ofício" chega como movimentação, anexo, ou ambos?
 3. Um PAJ pode ter 2 eventos pendentes ao mesmo tempo (ex.: intimação +
    retorno)? Proposta: `evento_triagem` vira lista se acontecer na prática.
+4. Padrão textual exato do evento "controle de prazo" no SISDPU (regex atual
+   é palpite — calibrar com um exemplo real).

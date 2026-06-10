@@ -340,7 +340,11 @@
            title="Modo conversa: explorar tese, brainstorm estratégico, dúvidas sobre o caso">
             Discutir
         </a>
-        <a role="tab" class="tab" :class="tab === 'prompt' && 'tab-active'" @click="tab = 'prompt'">PROMPT_MAX</a>
+        <a role="tab" class="tab" :class="tab === 'prompt' && 'tab-active'"
+           @click="tab = 'prompt'"
+           title="Guia do fluxo: razão do encaminhamento, análise FIRAC e próximo passo (PROMPT_MAX.md)">
+            Situação do PAJ
+        </a>
     </div>
 
     <!-- Tab: Notas (anotacoes pessoais — NOTAS.md no disco) -->
@@ -766,10 +770,13 @@
         {% endif %}
     </div>
 
-    <!-- Tab: PROMPT_MAX -->
+    <!-- Tab: Situação do PAJ (arquivo PROMPT_MAX.md no disco) -->
     <div x-show="tab === 'prompt'" class="bg-base-200 rounded-lg border border-base-300 p-6">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold">PROMPT_MAX.md</h3>
+            <div>
+                <h3 class="text-lg font-semibold">Situação do PAJ</h3>
+                <p class="text-xs text-base-content/50">Razão do encaminhamento + análise FIRAC + próximo passo · arquivo <code>PROMPT_MAX.md</code></p>
+            </div>
             <button class="btn btn-ghost btn-xs" onclick="copiarPrompt()">Copiar</button>
         </div>
         {% if dados.prompt_max %}
@@ -777,7 +784,7 @@
             <pre class="whitespace-pre-wrap text-sm text-base-content/80 bg-base-300 p-4 rounded-lg max-h-[70vh] overflow-y-auto">{{ dados.prompt_max }}</pre>
         </div>
         {% else %}
-        <p class="text-base-content/50">PROMPT_MAX.md não encontrado.</p>
+        <p class="text-base-content/50">Situação ainda não gerada (PROMPT_MAX.md não encontrado).</p>
         {% endif %}
     </div>
 </div>
@@ -808,7 +815,7 @@ function copiarPrompt() {
     if (!el) return;
     var text = el.innerText || el.textContent;
     navigator.clipboard.writeText(text).then(function() {
-        showToast('PROMPT_MAX copiado', 'success');
+        showToast('Situação do PAJ copiada', 'success');
     }).catch(function() {
         showToast('Erro ao copiar', 'error');
     });

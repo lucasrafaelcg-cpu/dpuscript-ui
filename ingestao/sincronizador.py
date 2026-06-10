@@ -639,7 +639,6 @@ async def _processar_paj_pos_detalhamento(
     if not dec:
         log(f"  [skip] PAJ mal-formado: {paj!r}")
         return ("", False)
-    ano, unidade, numero = dec
     paj_norm = _normalizar_paj(paj)
     pasta = PAJS_DIR / paj_norm
     ja_existia = pasta.exists()
@@ -1433,7 +1432,7 @@ async def rodar_paj_via_busca_global(
     item_sintetico = {"paj": alvo}
 
     try:
-        paj_norm_ret, ok = await _processar_paj_pos_detalhamento(
+        _paj_norm_ret, ok = await _processar_paj_pos_detalhamento(
             item_sintetico, det, log,
             deve_cancelar=deve_cancelar,
             baixar_anexos=baixar_anexos,

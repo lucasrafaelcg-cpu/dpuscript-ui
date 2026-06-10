@@ -112,7 +112,7 @@ async def criar_prazo_manual(payload: PrazoManualIn):
     try:
         dt.date.fromisoformat(data_alvo)
     except ValueError:
-        raise HTTPException(status_code=400, detail="data_alvo invalida")
+        raise HTTPException(status_code=400, detail="data_alvo invalida") from None
 
     if not _PAJ_RE.match(paj_norm):
         raise HTTPException(

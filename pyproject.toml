@@ -25,6 +25,15 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "_migrar_pajs.py" = ["F401", "F841", "B"]  # script legado de migracao
 "stop.py" = ["B"]
+# Arquivos arquivados/duplicados da automacao web do PJe (substituidos pelo
+# fluxo MNI em services/pje_service.py) — mantidos so como referencia.
+"ingestao/pje_web.py" = ["SIM105"]
+"ingestao/pje_web_console.py" = ["F401"]
+"ingestao/pje_client.py" = ["F401"]
+"ferramentas/pje_web_trf3/*" = ["SIM105", "F401"]
+# O regex JS embutido remove tanto `:` quanto o dois-pontos fullwidth `：`
+# de labels do SISDPU — o caractere "ambiguo" e' intencional.
+"ingestao/sisdpu_client.py" = ["RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"
