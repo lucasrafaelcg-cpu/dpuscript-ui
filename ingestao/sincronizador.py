@@ -760,6 +760,16 @@ async def _processar_paj_pos_detalhamento(
                     encoding="utf-8",
                 )
                 log(f"  [triagem] {metadata['evento_triagem']['label']} — na Caixa de triagem")
+
+                # Análise FIRAC automática: PAJ entrou na caixa → a situação é
+                # analisada sozinha em fila de fundo (1 Claude por vez), sem
+                # atrasar o sync. Desligável com SITUACAO_AUTO=false no .env.
+                from config import SITUACAO_AUTO
+                if SITUACAO_AUTO:
+                    from services.situacao_service import agendar_analise
+
+                    if agendar_analise(paj_norm):
+                        log("  [situacao] análise FIRAC automática enfileirada")
         except Exception as e:
             log(f"  [triagem] erro: {type(e).__name__}: {e}")
 

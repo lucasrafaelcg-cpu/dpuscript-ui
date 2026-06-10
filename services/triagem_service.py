@@ -174,6 +174,15 @@ def listar_fila() -> list[dict]:
         ev = meta.get("evento_triagem") or {}
         if ev.get("status") != "pendente":
             continue
+        # Análise FIRAC pronta = SITUACAO.md mais novo que a detecção do
+        # evento (gerado pela fila automática ou pelo botão). Strings ISO
+        # do mesmo formato — comparação lexicográfica funciona.
+        situacao_pronta = False
+        sit = pasta / "SITUACAO.md"
+        if sit.exists():
+            gerada_em = _dt.datetime.fromtimestamp(
+                sit.stat().st_mtime).isoformat(timespec="seconds")
+            situacao_pronta = gerada_em >= (ev.get("detectado_em") or "")
         itens.append({
             "paj_norm": pasta.name,
             "paj": meta.get("paj", pasta.name),
@@ -184,6 +193,7 @@ def listar_fila() -> list[dict]:
             "descricao": ev.get("descricao", ""),
             "detectado_em": ev.get("detectado_em", ""),
             "trf3": eh_trf3_1g(meta.get("processo_judicial", "")),
+            "situacao_pronta": situacao_pronta,
         })
     itens.sort(key=lambda i: i.get("detectado_em") or "", reverse=True)
     return itens

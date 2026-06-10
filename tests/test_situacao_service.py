@@ -108,3 +108,47 @@ def test_gerar_situacao_rejeita_concorrencia(paj_tmp):
         assert "em andamento" in res["erro"]
     finally:
         ss._em_andamento.discard("PAJ-2026-020-00001")
+
+
+# --- Fila automática (análise sem botão) ----------------------------------------
+
+@pytest.fixture
+def fila_limpa():
+    """Reseta o estado global da fila entre testes."""
+    ss._fila_auto = None
+    ss._worker_task = None
+    ss._na_fila.clear()
+    yield
+    ss._fila_auto = None
+    ss._worker_task = None
+    ss._na_fila.clear()
+
+
+def test_agendar_fora_de_loop_nao_quebra(fila_limpa):
+    """Sem event loop (pipeline standalone), agendar é no-op seguro."""
+    assert ss.agendar_analise("PAJ-2026-020-00001") is False
+
+
+def test_fila_automatica_processa_e_dedupa(paj_tmp, monkeypatch, fila_limpa):
+    relatorio = ("1. **Resumo da demanda** — teste da fila automática.\n"
+                 "2. PAJ encaminhado ao defensor em razão de retorno.\n"
+                 "3. Sugestão: skill mensagem.\n"
+                 "4. Sugiro o seguinte despacho no PAJ: ciência.")
+    chamadas = []
+
+    def fake_run(cmd, **kwargs):
+        chamadas.append(1)
+        return types.SimpleNamespace(returncode=0, stdout=relatorio, stderr="")
+
+    monkeypatch.setattr(ss.subprocess, "run", fake_run)
+
+    async def cenario():
+        assert ss.agendar_analise("PAJ-2026-020-00001") is True
+        # dedup: mesmo PAJ na fila não entra duas vezes
+        assert ss.agendar_analise("PAJ-2026-020-00001") is False
+        await ss._worker_task
+
+    asyncio.run(cenario())
+    assert len(chamadas) == 1
+    assert (paj_tmp / "SITUACAO.md").exists()
+    assert ss.fila_status() == {"na_fila": [], "em_analise": []}

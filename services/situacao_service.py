@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import subprocess
 import threading
 
@@ -23,9 +24,72 @@ from services.chat_service import CLAUDE_CMD
 from services.planejar_service import _env_sem_claudecode
 from services.prompt_builder import SITUACAO_FILE, gerar_prompt_max, montar_contexto
 
+logger = logging.getLogger("situacao")
+
 # Uma análise por PAJ por vez (duplo clique não pode abrir dois Claude).
 _em_andamento: set[str] = set()
 _lock = threading.Lock()
+
+# --- Fila automática (análise sem botão) --------------------------------------
+# O sincronizador enfileira cada PAJ com evento de triagem NOVO; um worker
+# único processa em série (1 Claude CLI por vez) em segundo plano, sem
+# atrasar a sincronização. Dedup: PAJ já na fila ou em análise não re-entra.
+_fila_auto: asyncio.Queue[str] | None = None
+_na_fila: set[str] = set()
+_worker_task: asyncio.Task | None = None
+
+
+def agendar_analise(paj_norm: str) -> bool:
+    """Enfileira a análise FIRAC automática do PAJ. True se entrou na fila.
+
+    Deve ser chamada de contexto async (o sincronizador roda no event loop
+    do painel). Fora de um loop (ex.: pipeline standalone), retorna False
+    sem quebrar — a análise fica para o botão manual.
+    """
+    global _fila_auto, _worker_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    with _lock:
+        if paj_norm in _na_fila or paj_norm in _em_andamento:
+            return False
+        _na_fila.add(paj_norm)
+    if _fila_auto is None:
+        _fila_auto = asyncio.Queue()
+    _fila_auto.put_nowait(paj_norm)
+    if _worker_task is None or _worker_task.done():
+        _worker_task = loop.create_task(_worker_fila())
+    return True
+
+
+async def _worker_fila() -> None:
+    """Consome a fila em série; termina quando ela esvazia (religa no próximo
+    agendar_analise). Falha em um PAJ não derruba os demais."""
+    while True:
+        try:
+            paj_norm = _fila_auto.get_nowait()
+        except asyncio.QueueEmpty:
+            return
+        with _lock:
+            _na_fila.discard(paj_norm)
+        try:
+            logger.info("[situacao-auto] analisando %s ...", paj_norm)
+            res = await gerar_situacao(paj_norm)
+            if res.get("ok"):
+                logger.info("[situacao-auto] %s pronta (%s)", paj_norm,
+                            res.get("gerada_em", ""))
+            else:
+                logger.warning("[situacao-auto] %s falhou: %s", paj_norm,
+                               res.get("erro", ""))
+        except Exception:
+            logger.exception("[situacao-auto] erro inesperado em %s", paj_norm)
+
+
+def fila_status() -> dict:
+    """Visibilidade da fila automática (para UI/diagnóstico)."""
+    with _lock:
+        return {"na_fila": sorted(_na_fila), "em_analise": sorted(_em_andamento)}
 
 _SYSTEM_PROMPT = (
     "Voce e' Defensor(a) Publico(a) Federal experiente atuando na Justica "

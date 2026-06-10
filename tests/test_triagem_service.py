@@ -262,3 +262,33 @@ def test_concluir_evento_paj_sem_evento(tmp_path, monkeypatch):
     _criar_paj(tmp_path, "PAJ-2026-020-00009", {"paj": "2026/020-00009"})
     assert not ts.concluir_evento("PAJ-2026-020-00009")
     assert not ts.concluir_evento("PAJ-2026-020-99999")
+
+
+def test_listar_fila_situacao_pronta(tmp_path, monkeypatch):
+    """SITUACAO.md mais novo que o evento → item marcado como análise pronta;
+    evento mais novo que o arquivo (análise velha) → não pronta."""
+    import config
+    monkeypatch.setattr(config, "PAJS_DIR", tmp_path)
+
+    _criar_paj(tmp_path, "PAJ-2026-020-00010", {
+        "paj": "2026/020-00010",
+        "evento_triagem": {"tipo": ts.TIPO_RETORNO, "label": "Retorno do Assistido",
+                           "seq": 5, "status": "pendente",
+                           "detectado_em": "2020-01-01T00:00:00"},
+    })
+    (tmp_path / "PAJ-2026-020-00010" / "SITUACAO.md").write_text(
+        "análise", encoding="utf-8")  # mtime = agora >> detectado_em
+
+    _criar_paj(tmp_path, "PAJ-2026-020-00011", {
+        "paj": "2026/020-00011",
+        "evento_triagem": {"tipo": ts.TIPO_INTIMACAO,
+                           "label": "Intimação judicial",
+                           "seq": 7, "status": "pendente",
+                           "detectado_em": "2099-01-01T00:00:00"},
+    })
+    (tmp_path / "PAJ-2026-020-00011" / "SITUACAO.md").write_text(
+        "análise velha", encoding="utf-8")  # evento "futuro" → análise defasada
+
+    fila = {i["paj_norm"]: i for i in ts.listar_fila()}
+    assert fila["PAJ-2026-020-00010"]["situacao_pronta"] is True
+    assert fila["PAJ-2026-020-00011"]["situacao_pronta"] is False

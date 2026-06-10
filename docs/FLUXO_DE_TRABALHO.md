@@ -139,6 +139,15 @@ Persistência (mesmo padrão dos prazos):
 A saída de TODAS as análises desemboca no fluxo **já existente** do
 Planejar: plano estruturado → modal de revisão → aprovação do Defensor.
 
+### Fase 3b — Análise automática (sem botão)
+
+> **Status: IMPLEMENTADO (v0.7.0)** — quando o sync detecta que um PAJ entrou
+> na caixa (evento de triagem novo), a análise FIRAC é enfileirada e roda
+> sozinha em segundo plano (`situacao_service.agendar_analise` + worker, 1
+> Claude CLI por vez, sem atrasar o sync). A Caixa de triagem mostra
+> "Ver análise ✓" quando a análise já está pronta (SITUACAO.md mais novo que
+> a detecção do evento). Desligável com `SITUACAO_AUTO=false` no `.env`.
+
 ### Fase 4 — Fechamento do ciclo (aprovação → minuta → concluído)
 
 - Plano aprovado → `chat_service` elabora com a skill certa

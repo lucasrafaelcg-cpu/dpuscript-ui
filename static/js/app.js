@@ -454,6 +454,8 @@ function triagemBox() {
             })).filter(g => g.itens.length > 0);
         },
         acaoLabel(item) {
+            // Análise FIRAC automática já rodou → o botão vira leitura direta.
+            if (item.situacao_pronta) return 'Ver análise ✓';
             if (item.tipo === 'intimacao' && item.trf3) return 'Puxar peças + analisar';
             return ACOES[item.tipo] || 'Analisar';
         },

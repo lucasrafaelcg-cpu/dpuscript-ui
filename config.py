@@ -36,6 +36,12 @@ TIMEOUT_OCR_POR_PAGINA_SEG = int(os.getenv("TIMEOUT_OCR_POR_PAGINA_SEG", "30"))
 # Default: <OFICIO_GERAL>/Peças Feitas
 DOCGEN_OUT_DIR = Path(os.getenv("DOCGEN_OUT_DIR", str(OFICIO_GERAL / "Peças Feitas")))
 
+# Analise FIRAC automatica: quando a sincronizacao detecta que um PAJ entrou
+# na caixa (evento de triagem novo), a analise da situacao roda sozinha em
+# fila de fundo (Claude CLI, 1 por vez) — sem precisar do botao. Desligue com
+# SITUACAO_AUTO=false no .env se quiser voltar ao modo manual.
+SITUACAO_AUTO = os.getenv("SITUACAO_AUTO", "true").strip().lower() != "false"
+
 # ---------------------------------------------------------------------------
 # Integracao PJe / MNI (Modelo Nacional de Interoperabilidade) — SOMENTE LEITURA
 # ---------------------------------------------------------------------------
