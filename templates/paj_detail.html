@@ -313,7 +313,8 @@
 {% endif %}
 
 <!-- Tabs -->
-<div x-data="{ tab: 'resumo' }" class="mt-4">
+<!-- ?tab=prompt (usado pela Caixa de triagem) abre direto a Situação do PAJ -->
+<div x-data="{ tab: (() => { const t = new URLSearchParams(location.search).get('tab'); return ['resumo','movs','anexos','pecas_jud','despachos','notas','prompt'].includes(t) ? t : 'resumo'; })() }" class="mt-4">
     <div role="tablist" class="tabs tabs-bordered mb-4">
         <a role="tab" class="tab" :class="tab === 'resumo' && 'tab-active'" @click="tab = 'resumo'">Resumo</a>
         <a role="tab" class="tab" :class="tab === 'movs' && 'tab-active'" @click="tab = 'movs'">

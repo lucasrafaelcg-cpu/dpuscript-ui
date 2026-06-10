@@ -25,6 +25,8 @@ Ruídos conhecidos do SISDPU (motivo de olhar VÁRIAS movimentações, não só 
 
 from __future__ import annotations
 
+import datetime as _dt
+import json
 import re
 
 TIPO_ABERTURA = "abertura_paj"
@@ -51,13 +53,20 @@ _PADROES: list[tuple[str, re.Pattern]] = [
         r"resposta\s+(de\s+|a[o]?\s+)?of[íi]cio|of[íi]cio\s+resposta|"
         r"resposta\s+do\s+[óo]rg[ãa]o", re.I)),
     (TIPO_CONTROLE_PRAZO, re.compile(
-        r"controle\s+de\s+prazo|decurso\s+de\s+prazo|"
+        r"controle\s+de\s+prazo|decurso\s+de\s+prazo|paj\s+em\s+decurso|"
         r"prazo\s+(de\s+controle\s+)?(encerrad|vencid|expirad)", re.I)),
     (TIPO_INTIMACAO, re.compile(r"intima[çc]|cita[çc][ãa]o|notifica[çc]", re.I)),
     (TIPO_ABERTURA, re.compile(
         r"abertura\s+d[eo]\s+paj|redistribui[çc]|"
         r"distribui[çc][ãa]o\s+d[eo]\s+paj", re.I)),
 ]
+
+# Decurso com situação "PREVISTO" é a INCLUSÃO/alteração do PAJ no controle de
+# prazo (programação futura) — não é envio ao defensor. Só o decurso consumado
+# (situação "EFETIVADO") caracteriza o evento `controle_prazo`. Exemplo real a
+# ignorar: fase "Decurso de prazo", descrição 'PAJ em decurso alterado de
+# "29/11/2026" para "29/05/2028" com situação "PREVISTO" a pedido do Defensor.'
+_RE_DECURSO_PREVISTO = re.compile(r"situa[çc][ãa]o\s*\"?\s*previsto", re.I)
 
 
 def classificar_movimentacao(mov: dict) -> str | None:
@@ -75,6 +84,8 @@ def classificar_movimentacao(mov: dict) -> str | None:
         return None
     for tipo, rgx in _PADROES:
         if rgx.search(texto):
+            if tipo == TIPO_CONTROLE_PRAZO and _RE_DECURSO_PREVISTO.search(texto):
+                return None  # programação de decurso futuro — não é evento
             return tipo
     return None
 
@@ -99,3 +110,104 @@ def detectar_evento_recente(movs: list[dict], max_janela: int = 10) -> dict | No
                 "descricao": (mov.get("descricao") or "").strip()[:300],
             }
     return None
+
+
+# --- Persistência do evento (Fase 2 — gancho no sincronizador + fila da UI) ---
+
+def atualizar_evento_triagem(metadata: dict, movs_antigas: list[dict],
+                             paj_novo: bool = False) -> bool:
+    """Grava/atualiza `evento_triagem` na metadata (mutável). True se mudou.
+
+    Chamada pelo sincronizador a cada sync de PAJ. Só sinaliza evento NOVO:
+    - PAJ novo na pasta → sempre entra na fila (fallback: abertura_paj);
+    - PAJ existente → só se o evento veio de movimentação que NÃO existia na
+      sync anterior (seq maior que o maior seq antigo). Assim, re-sincronizar
+      não reabre evento já triado nem re-enfileira evento antigo.
+    """
+    det = metadata.get("detalhes_sisdpu", {}) or {}
+    movs = det.get("movimentacoes", []) or []
+    agora = _dt.datetime.now().isoformat(timespec="seconds")
+
+    evento = detectar_evento_recente(movs)
+
+    if paj_novo:
+        if not evento:
+            evento = {
+                "tipo": TIPO_ABERTURA, "label": LABELS[TIPO_ABERTURA],
+                "seq": None, "data": "",
+                "descricao": "PAJ novo na caixa (sem movimentação classificável)",
+            }
+        metadata["evento_triagem"] = {**evento, "status": "pendente",
+                                      "detectado_em": agora}
+        return True
+
+    if not evento:
+        return False
+    max_seq_antiga = max(
+        (int(m.get("seq", 0) or 0) for m in movs_antigas or []), default=0)
+    if int(evento.get("seq") or 0) <= max_seq_antiga:
+        return False  # evento já existia na sync anterior — não reabrir
+    existente = metadata.get("evento_triagem") or {}
+    if existente.get("seq") == evento.get("seq") and existente.get("status") == "pendente":
+        return False  # mesmo evento já pendente — preserva detectado_em original
+    metadata["evento_triagem"] = {**evento, "status": "pendente",
+                                  "detectado_em": agora}
+    return True
+
+
+def listar_fila() -> list[dict]:
+    """Itens pendentes da Caixa de triagem (varre metadata.json dos PAJs)."""
+    from config import PAJS_DIR
+    from services.pje_service import eh_trf3_1g
+
+    itens: list[dict] = []
+    if not PAJS_DIR.exists():
+        return itens
+    for pasta in PAJS_DIR.iterdir():
+        meta_path = pasta / "metadata.json"
+        if not pasta.is_dir() or not meta_path.exists():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        ev = meta.get("evento_triagem") or {}
+        if ev.get("status") != "pendente":
+            continue
+        itens.append({
+            "paj_norm": pasta.name,
+            "paj": meta.get("paj", pasta.name),
+            "assistido": meta.get("assistido_caixa", "") or "",
+            "tipo": ev.get("tipo", ""),
+            "label": ev.get("label", ""),
+            "data": ev.get("data", ""),
+            "descricao": ev.get("descricao", ""),
+            "detectado_em": ev.get("detectado_em", ""),
+            "trf3": eh_trf3_1g(meta.get("processo_judicial", "")),
+        })
+    itens.sort(key=lambda i: i.get("detectado_em") or "", reverse=True)
+    return itens
+
+
+def concluir_evento(paj_norm: str) -> bool:
+    """Marca o evento de triagem do PAJ como concluído (sai da fila)."""
+    from config import PAJS_DIR
+
+    meta_path = PAJS_DIR / paj_norm / "metadata.json"
+    if not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    ev = meta.get("evento_triagem") or {}
+    if not ev:
+        return False
+    ev["status"] = "concluido"
+    ev["concluido_em"] = _dt.datetime.now().isoformat(timespec="seconds")
+    meta["evento_triagem"] = ev
+    meta_path.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return True

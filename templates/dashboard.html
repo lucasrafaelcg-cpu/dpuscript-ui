@@ -124,6 +124,56 @@
     </div>
   </div>
 
+  <!-- Caixa de triagem: eventos que trouxeram PAJs à caixa (5 fluxos de entrada) -->
+  <section class="px-8 pb-4" x-data="triagemBox()" x-init="init()" x-show="itens.length > 0" x-cloak>
+    <div class="bg-base-300 rounded-xl border border-warning/25 p-4">
+      <div class="flex items-center justify-between cursor-pointer select-none" @click="aberta = !aberta">
+        <div class="flex items-center gap-2.5">
+          <svg class="w-4 h-4 text-warning" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"></path></svg>
+          <h2 class="font-semibold text-sm">Caixa de triagem</h2>
+          <span class="badge badge-warning badge-sm tnum" x-text="itens.length"></span>
+          <span class="text-xs text-base-content/50">eventos aguardando análise</span>
+        </div>
+        <svg class="w-4 h-4 text-base-content/50 transition-transform" :class="aberta && 'rotate-180'"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg>
+      </div>
+
+      <div x-show="aberta" x-transition.opacity.duration.150ms class="mt-3 space-y-4">
+        <template x-for="grupo in grupos" :key="grupo.tipo">
+          <div>
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="badge badge-xs" :class="corBadge(grupo.tipo)"></span>
+              <span class="text-xs uppercase tracking-wide text-base-content/60" x-text="grupo.label"></span>
+              <span class="text-xs text-base-content/40 tnum" x-text="'(' + grupo.itens.length + ')'"></span>
+            </div>
+            <div class="space-y-1">
+              <template x-for="item in grupo.itens" :key="item.paj_norm">
+                <div class="flex items-center gap-3 bg-base-200 rounded-lg px-3 py-2 paj-row">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm flex items-center gap-1.5 flex-wrap">
+                      <a :href="'/paj/' + item.paj_norm" class="link link-hover font-mono" x-text="item.paj"></a>
+                      <span class="text-base-content/70 truncate" x-show="item.assistido" x-text="'· ' + item.assistido"></span>
+                      <span class="badge badge-outline badge-xs" x-show="item.trf3 && item.tipo === 'intimacao'">PJe/TRF3</span>
+                    </div>
+                    <div class="text-xs text-base-content/50 truncate-1"
+                         x-text="(item.data ? '[' + item.data + '] ' : '') + (item.descricao || '')"></div>
+                  </div>
+                  <a class="btn btn-primary btn-xs normal-case shrink-0"
+                     :href="'/paj/' + item.paj_norm + '?tab=prompt'"
+                     :title="'Abrir a Situação do PAJ ' + item.paj"
+                     x-text="acaoLabel(item)"></a>
+                  <button class="btn btn-ghost btn-xs normal-case shrink-0 text-base-content/60"
+                          @click="concluir(item)"
+                          title="Remover da fila (triagem concluída)">Concluir</button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </section>
+
   <!-- Filter Bar -->
   <section class="px-8 pb-4">
     <div class="bg-base-300 rounded-xl border border-base-content/5 p-2 flex items-center gap-2 overflow-x-auto">

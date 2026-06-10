@@ -29,6 +29,7 @@ from routes.pipeline_monitor import router as pipeline_monitor_router
 from routes.planejar import router as planejar_router
 from routes.prazos import router as prazos_router
 from routes.sync import router as sync_router
+from routes.triagem import router as triagem_router
 from routes.watchlist import router as watchlist_router
 from routes.pje import router as pje_router
 from services.ambiente_service import verificar_ambiente
@@ -66,7 +67,7 @@ _configurar_logging()
 # Versao do painel — fonte unica. Usada pelo FastAPI (OpenAPI/docs) e tambem
 # exposta a todos os templates via Jinja globals (renderizada no rodape da
 # sidebar). Para incrementar: mude aqui e so aqui.
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 
 app = FastAPI(title="oficio-geral-ui", version=APP_VERSION)
 app.state.jinja = jinja2.Environment(
@@ -158,6 +159,7 @@ app.include_router(prazos_router)
 app.include_router(watchlist_router)
 app.include_router(pipeline_monitor_router)
 app.include_router(pje_router)
+app.include_router(triagem_router)
 
 # Healthcheck de dependencias externas — expoe em app.state.ambiente pra
 # o dashboard renderizar banner quando algo falta.

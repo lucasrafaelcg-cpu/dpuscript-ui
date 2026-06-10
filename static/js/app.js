@@ -418,6 +418,60 @@ function baixarAnexosDesde(pajNorm) {
     };
 }
 
+/* ===== Caixa de triagem (fila de eventos por tipo — docs/FLUXO_DE_TRABALHO.md) ===== */
+function triagemBox() {
+    var ORDEM = ['abertura_paj', 'retorno_assistido', 'intimacao', 'resposta_oficio', 'controle_prazo'];
+    var ACOES = {
+        abertura_paj: 'Analisar caso novo',
+        retorno_assistido: 'Analisar retorno',
+        intimacao: 'Analisar intimação',
+        resposta_oficio: 'Analisar resposta',
+        controle_prazo: 'Verificar prazo',
+    };
+    var CORES = {
+        abertura_paj: 'badge-info',
+        retorno_assistido: 'badge-success',
+        intimacao: 'badge-warning',
+        resposta_oficio: 'badge-accent',
+        controle_prazo: 'badge-error',
+    };
+    return {
+        itens: [],
+        aberta: true,
+        init() { this.recarregar(); },
+        async recarregar() {
+            try {
+                const r = await fetch('/api/triagem');
+                const d = await r.json();
+                this.itens = d.itens || [];
+            } catch (_) { this.itens = []; }
+        },
+        get grupos() {
+            return ORDEM.map((tipo) => ({
+                tipo: tipo,
+                label: (this.itens.find(i => i.tipo === tipo) || {}).label || tipo,
+                itens: this.itens.filter(i => i.tipo === tipo),
+            })).filter(g => g.itens.length > 0);
+        },
+        acaoLabel(item) {
+            if (item.tipo === 'intimacao' && item.trf3) return 'Puxar peças + analisar';
+            return ACOES[item.tipo] || 'Analisar';
+        },
+        corBadge(tipo) { return CORES[tipo] || 'badge-ghost'; },
+        async concluir(item) {
+            try {
+                const r = await fetch('/api/paj/' + encodeURIComponent(item.paj_norm) + '/triagem/concluir', { method: 'POST' });
+                if (r.ok) {
+                    this.itens = this.itens.filter(i => i.paj_norm !== item.paj_norm);
+                    showToast('Triagem concluída — ' + item.paj, 'success');
+                } else {
+                    showToast('Não foi possível concluir a triagem', 'error');
+                }
+            } catch (_) { showToast('Erro ao concluir triagem', 'error'); }
+        },
+    };
+}
+
 /* ===== Integração PJe/TRF3 (reusa o sync-modal para o log SSE) ===== */
 function _pjeStream(pajNorm, url, titulo, onResult) {
     // Uma stream por vez: se há sincronização (ou outra operação PJe) ativa,

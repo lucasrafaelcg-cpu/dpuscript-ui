@@ -746,6 +746,23 @@ async def _processar_paj_pos_detalhamento(
     except Exception as e:
         log(f"  [prazos] erro ao detectar: {type(e).__name__}: {e}")
 
+    # Triagem (Fase 2 do fluxo — docs/FLUXO_DE_TRABALHO.md): grava o evento
+    # que trouxe o PAJ a caixa, alimentando a "Caixa de triagem" do dashboard.
+    # Sync via busca global e' acao manual do defensor (watchlist), nao chegada
+    # na caixa — nao gera evento.
+    if not via_busca_global:
+        try:
+            from services.triagem_service import atualizar_evento_triagem
+
+            if atualizar_evento_triagem(metadata, movs_antigas, paj_novo=not ja_existia):
+                (pasta / "metadata.json").write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2, default=str),
+                    encoding="utf-8",
+                )
+                log(f"  [triagem] {metadata['evento_triagem']['label']} — na Caixa de triagem")
+        except Exception as e:
+            log(f"  [triagem] erro: {type(e).__name__}: {e}")
+
     # Anexos SISDPU: usa o botao "Arquivos" do PAJ (lista consolidada de todos
     # os anexos, tipo/descricao/arquivo). Pre-condicao: movimentacoes_paj foi
     # chamado acima e a page do Playwright esta no detalhamento deste PAJ.

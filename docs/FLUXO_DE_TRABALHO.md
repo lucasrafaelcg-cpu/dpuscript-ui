@@ -72,7 +72,11 @@ São **5 fluxos de entrada** (o Defensor acrescentou o 5º ao desenho original):
    do TRF3 continua como subtipo (com PJe).
 4. **`resposta_oficio`** — `resposta de ofício|ofício resposta|resposta do órgão`.
 5. **`controle_prazo`** — envio automático pelo sistema ao encerrar um prazo de
-   controle (`controle de prazo|decurso de prazo|prazo encerrado/vencido`).
+   controle. Padrão real (jun/2026): fase "Decurso de prazo", descrição
+   `PAJ em decurso com situação "EFETIVADO" em DD/MM/AAAA a pedido do
+   Defensor.(...)`. **Atenção:** decurso com situação **"PREVISTO"** é a
+   inclusão/alteração do PAJ no controle (programação futura) — NÃO é envio
+   ao defensor e é ignorado pelo classificador.
 
 Ruído tratado: o classificador percorre as movimentações da mais recente para
 trás pulando conclusões genéricas — PAJs encaminhados em duplicidade têm uma
@@ -86,20 +90,25 @@ Persistência (mesmo padrão dos prazos):
 
 ### Fase 2 — Fila de triagem na UI
 
-- Dashboard: nova seção/aba **"Caixa de triagem"** listando PAJs com
-  `evento_triagem.status == pendente`, agrupados por tipo (4 grupos do
-  desenho), com badge colorido por tipo.
-- Cada item mostra **um botão de ação contextual**:
+> **Status: IMPLEMENTADO (v0.5.1)** — gancho no sincronizador grava
+> `evento_triagem` na metadata a cada sync (só evento NOVO: movimentação com
+> seq maior que a última sync, ou PAJ recém-criado; busca global/watchlist
+> não gera evento). Dashboard ganhou a seção "Caixa de triagem" (some quando
+> vazia), agrupada por tipo, com botão contextual que abre o PAJ direto na
+> aba "Situação do PAJ" (`?tab=prompt`) e botão "Concluir" que tira da fila.
 
-| Tipo | Botão | O que dispara |
-|---|---|---|
-| `abertura_paj` | "Analisar caso novo" | análise com skill `triagem-*` da área (fase 3) |
-| `intimacao` (TRF3) | "Puxar peças do PJe" | já existe; ao concluir, encadeia a análise |
-| `intimacao` (outros) | "Analisar intimação" | análise direta (peças já vêm do SISDPU) |
-| `retorno_assistido` | "Analisar retorno" | análise com as 2 perguntas do desenho |
-| `resposta_oficio` | "Analisar resposta" | análise "demanda solucionada?" |
+- Botões contextuais por tipo:
 
-- Rotas novas: `routes/triagem.py` — `GET /api/triagem` (fila),
+| Tipo | Botão |
+|---|---|
+| `abertura_paj` | "Analisar caso novo" |
+| `intimacao` (TRF3) | "Puxar peças + analisar" (badge PJe/TRF3) |
+| `intimacao` (outros) | "Analisar intimação" |
+| `retorno_assistido` | "Analisar retorno" |
+| `resposta_oficio` | "Analisar resposta" |
+| `controle_prazo` | "Verificar prazo" |
+
+- Rotas: `routes/triagem.py` — `GET /api/triagem` (fila),
   `POST /api/paj/{paj}/triagem/concluir`.
 
 ### Fase 3 — Análise dirigida por tipo de evento
@@ -151,5 +160,6 @@ rollback simples, como feito na v0.4.1.
 2. "Resposta de ofício" chega como movimentação, anexo, ou ambos?
 3. Um PAJ pode ter 2 eventos pendentes ao mesmo tempo (ex.: intimação +
    retorno)? Proposta: `evento_triagem` vira lista se acontecer na prática.
-4. Padrão textual exato do evento "controle de prazo" no SISDPU (regex atual
-   é palpite — calibrar com um exemplo real).
+4. ~~Padrão textual do "controle de prazo"?~~ **Respondido** (jun/2026):
+   fase "Decurso de prazo" + situação "EFETIVADO" (ignorar "PREVISTO") —
+   3 exemplos reais fixados nos testes.
