@@ -14,6 +14,7 @@ import json
 import re
 import time
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -38,6 +39,7 @@ PajNorm = Annotated[
 IGNORAR = {
     "metadata.json",
     "PROMPT_MAX.md",
+    "SITUACAO.md",
     "elaboracao.json",
     "sisdpu.txt",
     "NOTAS.md",
@@ -295,6 +297,15 @@ def ler_paj(paj_norm: str) -> dict | None:
         prompt_max_path.read_text(encoding="utf-8") if prompt_max_path.exists() else ""
     )
 
+    # Resultado da analise FIRAC executada (services/situacao_service) — a aba
+    # "Situacao do PAJ" exibe isto; o PROMPT_MAX vira contexto tecnico.
+    situacao_path = pasta / "SITUACAO.md"
+    situacao = ler_texto_robusto(situacao_path) if situacao_path.exists() else ""
+    situacao_em = (
+        datetime.fromtimestamp(situacao_path.stat().st_mtime).isoformat(timespec="seconds")
+        if situacao_path.exists() else ""
+    )
+
     # Categorizar arquivos na pasta do PAJ:
     #   despachos       — nomes comecando com "despacho"
     #   pecas_judiciais — demais arquivos gerados (peticao*, recurso*, .docx, .pdf, etc.)
@@ -356,6 +367,8 @@ def ler_paj(paj_norm: str) -> dict | None:
     return {
         "metadata": metadata,
         "prompt_max": prompt_max,
+        "situacao": situacao,
+        "situacao_em": situacao_em,
         "pecas": [],
         "pecas_por_categoria": [],
         "decisoes": [],

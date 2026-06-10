@@ -79,6 +79,24 @@ def test_prompt_sem_evento_omite_secao(paj_workspace):
     assert "## Analise solicitada — skill FIRAC" in texto
 
 
+def test_prompt_max_abre_com_situacao_quando_existe(paj_workspace, tmp_path):
+    """Ordem definida pelo Defensor: análise FIRAC primeiro, prompt max depois."""
+    paj = paj_workspace(_meta_com_retorno())
+    (tmp_path / paj / "SITUACAO.md").write_text(
+        "1. Resumo da demanda...\n4. Sugiro o seguinte despacho no PAJ: ciência.",
+        encoding="utf-8")
+    texto = prompt_builder.gerar_prompt_max(paj).read_text(encoding="utf-8")
+    assert texto.startswith("# Situacao do PAJ — analise FIRAC ja realizada")
+    assert texto.index("Sugiro o seguinte despacho") < texto.index("## Ultimas movimentacoes")
+
+
+def test_montar_contexto_sem_instrucao(paj_workspace):
+    paj = paj_workspace(_meta_com_retorno())
+    ctx = prompt_builder.montar_contexto(paj)
+    assert "## Ultimas movimentacoes" in ctx
+    assert "## Analise solicitada" not in ctx  # instrução fica fora do contexto
+
+
 def test_digest_pje_truncado(paj_workspace, tmp_path):
     paj = paj_workspace(_meta_com_retorno())
     (tmp_path / paj / "_situacao_pje.md").write_text(

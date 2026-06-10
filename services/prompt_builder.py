@@ -1,18 +1,13 @@
-"""Gera PROMPT_MAX.md dinamicamente por PAJ — a "Situação do PAJ".
+"""Gera PROMPT_MAX.md dinamicamente por PAJ (contexto tecnico da elaboracao).
 
-E' o guia do fluxo de trabalho do Defensor (docs/FLUXO_DE_TRABALHO.md):
-alem do contexto (cabecalho, movimentacoes, pecas, texto do SISDPU), o prompt
-instrui a analise FIRAC a identificar POR QUE o PAJ foi encaminhado ao
-defensor (olhando as ultimas movimentacoes, nao so a ultima — ha ruido de
-duplicidade/conclusoes posteriores), classificar o evento num dos 5 fluxos de
-entrada e propor o proximo passo com uma breve analise.
-
-Concatena:
-- cabecalho estruturado (identificacao, prazo, processo)
-- ultimas movimentacoes + evento detectado (heuristica de triagem_service)
-- lista de pecas anteriores do mesmo assistido em `Pecas Feitas/`
-- texto completo do SISDPU
-- instrucao de analise FIRAC (razao do encaminhamento + fluxo + proximo passo)
+Papel no fluxo (docs/FLUXO_DE_TRABALHO.md):
+- `montar_contexto()` — o CONTEXTO do PAJ (identificacao, prazos, movimentacoes,
+  evento detectado, pecas, PJe, texto do SISDPU). Reusado pela analise FIRAC
+  executada (services/situacao_service) e pelo PROMPT_MAX.
+- `gerar_prompt_max()` — PROMPT_MAX.md consumido pelo chat/elaboracao. Quando a
+  analise FIRAC ja foi executada (SITUACAO.md na pasta do PAJ), o PROMPT_MAX
+  ABRE com ela — a elaboracao parte da situacao ja analisada, conforme o fluxo
+  definido pelo Defensor (primeiro a analise da situacao, depois o prompt max).
 """
 
 from __future__ import annotations
@@ -33,6 +28,9 @@ MAX_MOVIMENTACOES_RESUMO = 12
 # completo continua disponível no arquivo, e o aviso aponta para ele.
 MAX_PJE_DIGEST_CHARS = 30_000
 
+# Arquivo com o RESULTADO da analise FIRAC executada (services/situacao_service).
+SITUACAO_FILE = "SITUACAO.md"
+
 
 def _ler_json(path: Path) -> dict | None:
     if not path.exists():
@@ -43,8 +41,12 @@ def _ler_json(path: Path) -> dict | None:
         return None
 
 
-def gerar_prompt_max(paj_norm: str) -> Path | None:
-    """Monta PROMPT_MAX.md dentro da pasta do PAJ e retorna o Path."""
+def montar_contexto(paj_norm: str) -> str | None:
+    """Contexto completo do PAJ em markdown (sem instrucao de tarefa).
+
+    None se a pasta do PAJ nao existe. Base comum do PROMPT_MAX e do prompt
+    da analise FIRAC executada.
+    """
     pasta = PAJS_DIR / paj_norm
     if not pasta.exists():
         return None
@@ -108,8 +110,8 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
             )
 
     # Evento que (provavelmente) encaminhou o PAJ ao defensor — heuristica
-    # deterministica de triagem_service. E' uma DICA para a analise FIRAC
-    # abaixo, nao um veredito.
+    # deterministica de triagem_service. E' uma DICA para a analise FIRAC,
+    # nao um veredito.
     from services.triagem_service import detectar_evento_recente
 
     evento = detectar_evento_recente(movs_ord)
@@ -123,7 +125,7 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
         )
         partes.append(
             "> Classificacao automatica por padrao de texto — CONFIRME na "
-            "analise FIRAC abaixo antes de seguir o fluxo."
+            "analise antes de seguir o fluxo."
         )
 
     if pecas_antes:
@@ -156,16 +158,17 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
     partes.append("## Texto completo do SISDPU")
     partes.append("")
     partes.append(sisdpu_texto.strip() or "(sem texto de SISDPU)")
-    partes.append("")
-    partes.append("---")
-    partes.append("")
-    partes.append("## Analise solicitada — skill FIRAC")
-    partes.append("")
-    partes.append(
-        "Aplique a skill `firac` (Sistema Integrado de Analise Juridica da DPU) "
-        "sobre este PAJ, nesta ordem:"
-    )
-    partes.append("""
+
+    return "\n".join(partes)
+
+
+_INSTRUCAO_ELABORACAO = """## Analise solicitada — skill FIRAC
+
+Aplique a skill `firac` (Sistema Integrado de Analise Juridica da DPU) sobre
+este PAJ. Se a secao "Situacao do PAJ — analise FIRAC ja realizada" estiver
+presente no INICIO deste documento, PARTA dela (nao refaca a analise do zero;
+apenas confirme contra as movimentacoes) e siga direto ao encaminhamento.
+
 1. **Razao do encaminhamento.** Leia as ULTIMAS MOVIMENTACOES acima (nao apenas
    a ultima) e identifique qual movimentacao EFETIVAMENTE encaminhou este PAJ
    ao defensor. Cuidado com os ruidos conhecidos do SISDPU:
@@ -173,6 +176,8 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
      "conclusao" posterior — o evento real esta em movimentacao anterior.
    - Descricao "Fase incluida automaticamente, verificar fase anterior": o
      sinal esta na FASE da propria movimentacao ou na movimentacao anterior.
+   - Decurso de prazo com situacao "PREVISTO" e' programacao futura — ignore;
+     so o decurso "EFETIVADO" caracteriza envio ao defensor.
 
 2. **Classifique o evento** em um destes 5 fluxos de entrada:
    1. Abertura de PAJ (ou redistribuicao a unidade de Osasco)
@@ -210,7 +215,40 @@ def gerar_prompt_max(paj_norm: str) -> Path | None:
        DPU Digital ou mensagem ao assistido) e a skill adequada.
 
 Siga o `CLAUDE.md` do workspace e, apos a aprovacao do Defensor, produza o
-TEXTO pronto da peca/despacho/mensagem na pasta do PAJ.""".strip("\n"))
+TEXTO pronto da peca/despacho/mensagem na pasta do PAJ."""
+
+
+def gerar_prompt_max(paj_norm: str) -> Path | None:
+    """Monta PROMPT_MAX.md dentro da pasta do PAJ e retorna o Path.
+
+    Ordem definida pelo Defensor: se a analise FIRAC executada existe
+    (SITUACAO.md), ela ABRE o documento; o contexto tecnico e a instrucao
+    de elaboracao vem depois.
+    """
+    pasta = PAJS_DIR / paj_norm
+    contexto = montar_contexto(paj_norm)
+    if contexto is None:
+        return None
+
+    from services.paj_service import ler_texto_robusto
+
+    partes: list[str] = []
+    situacao_path = pasta / SITUACAO_FILE
+    if situacao_path.exists():
+        situacao = ler_texto_robusto(situacao_path).strip()
+        if situacao:
+            partes.append("# Situacao do PAJ — analise FIRAC ja realizada")
+            partes.append("")
+            partes.append(situacao)
+            partes.append("")
+            partes.append("---")
+            partes.append("")
+
+    partes.append(contexto)
+    partes.append("")
+    partes.append("---")
+    partes.append("")
+    partes.append(_INSTRUCAO_ELABORACAO)
 
     prompt_path = pasta / "PROMPT_MAX.md"
     prompt_path.write_text("\n".join(partes), encoding="utf-8")

@@ -113,6 +113,14 @@ Persistência (mesmo padrão dos prazos):
 
 ### Fase 3 — Análise dirigida por tipo de evento
 
+> **Status: IMPLEMENTADO (v0.6.0)** — a aba "Situação do PAJ" agora exibe o
+> RESULTADO da análise FIRAC executada (`SITUACAO.md`), não o prompt. O botão
+> "Gerar análise FIRAC" roda o Claude CLI headless (services/situacao_service)
+> com o molde do Defensor: 1. resumo da demanda · 2. razão do encaminhamento e
+> situação atual · 3. sugestão de skill/plugin · 4. sugestão de despacho.
+> O PROMPT_MAX.md vira contexto técnico (recolhido na aba) e ABRE com a
+> análise quando ela existe — primeiro a situação, depois o prompt max.
+
 `services/prompt_builder.py` ganha um bloco por tipo (hoje o PROMPT_MAX é
 único). Cada tipo injeta a *pergunta-guia* do desenho no final do prompt:
 

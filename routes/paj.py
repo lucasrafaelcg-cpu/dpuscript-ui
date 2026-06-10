@@ -34,6 +34,16 @@ async def api_paj(paj_norm: PajNorm):
     return dados_resumo
 
 
+@router.post("/api/paj/{paj_norm}/situacao/gerar", response_class=JSONResponse)
+async def gerar_situacao(paj_norm: PajNorm):
+    """Roda a análise FIRAC da situação atual (Claude CLI headless) e grava
+    SITUACAO.md — conteúdo da aba 'Situação do PAJ'. Demora 1-3 min."""
+    from services.situacao_service import gerar_situacao as _gerar
+
+    res = await _gerar(paj_norm)
+    return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+
+
 @router.get("/api/paj/{paj_norm}/limpar-anexos/preview", response_class=JSONResponse)
 async def limpar_anexos_preview(paj_norm: PajNorm):
     """Dry-run: lista o que seria apagado e mostra bloqueios de seguranca."""
