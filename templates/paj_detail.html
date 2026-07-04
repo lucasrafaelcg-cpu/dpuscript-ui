@@ -155,17 +155,19 @@
                 </button>
                 <button class="join-item btn btn-sm btn-outline normal-case gap-1.5"
                         onclick="puxarPecasPje('{{ paj_norm }}')"
-                        title="Baixa as peças recentes do processo no PJe/TRF3, roda OCR e prepara para análise">
+                        title="Baixa as peças recentes do processo no PJe/TRF3, roda OCR e prepara para análise (sem rodar a análise FIRAC)">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"></path></svg>
                     Puxar peças do PJe
                 </button>
             </div>
-            {% if meta.pje_intimacao_pendente %}
-            <div class="badge badge-warning gap-1 text-xs"
-                 title="Intimação nova detectada num processo do TRF3 — use 'Puxar peças do PJe'">
-                ⚠ Intimação nova — puxar peças
-            </div>
-            {% endif %}
+            <!-- Botão 1 clique: download das peças + OCR + análise FIRAC encadeados.
+                 Destacado (btn-warning) quando há intimação nova pendente. -->
+            <button class="btn btn-sm normal-case gap-1.5 {{ 'btn-warning' if meta.pje_intimacao_pendente else 'btn-primary btn-outline' }}"
+                    onclick="puxarEAnalisarPje('{{ paj_norm }}')"
+                    title="1 clique: baixa as peças do PJe, roda OCR e executa a análise FIRAC dos próximos passos — sem precisar puxar e analisar em etapas separadas">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"></path></svg>
+                {% if meta.pje_intimacao_pendente %}⚡ Intimação nova — Puxar peças + análise FIRAC{% else %}Puxar peças + análise FIRAC{% endif %}
+            </button>
             {% endif %}
 
             <!-- Watchlist toggle -->

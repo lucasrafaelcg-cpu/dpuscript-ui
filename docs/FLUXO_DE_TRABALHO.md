@@ -148,6 +148,25 @@ Planejar: plano estruturado → modal de revisão → aprovação do Defensor.
 > "Ver análise ✓" quando a análise já está pronta (SITUACAO.md mais novo que
 > a detecção do evento). Desligável com `SITUACAO_AUTO=false` no `.env`.
 
+### Fase 3c — Intimação em 1 clique (peças do PJe + FIRAC encadeados)
+
+> **Status: IMPLEMENTADO (v0.8.0)** — para intimação nova em processo do TRF3
+> 1g, um único botão executa em sequência: (1) download das peças do PJe +
+> OCR (`pje_service.puxar_pecas`, grava `_situacao_pje.md`) e (2) análise FIRAC
+> (`situacao_service.gerar_situacao`, grava `SITUACAO.md` já COM as peças).
+> Tudo numa stream SSE contínua no mesmo modal de log.
+>
+> - Rota: `GET /api/paj/{paj}/pje/intimacao/stream` (`routes/pje._job_intimacao`,
+>   orquestração testável em `tests/test_pje_routes.py`). Se as peças falham,
+>   aborta antes da análise (sem peças a análise seria cega).
+> - PAJ (`paj_detail.html`): botão "⚡ Intimação nova — Puxar peças + análise
+>   FIRAC", destacado quando `pje_intimacao_pendente`; JS `puxarEAnalisarPje`.
+> - Dashboard: a Caixa de triagem dispara o mesmo fluxo direto no item de
+>   intimação TRF3 (`acaoTriagem`) — não só navega ao PAJ.
+> - Nota: a análise automática do sync (Fase 3b) roda SEM as peças (o sync não
+>   abre Chrome); por isso, para intimação TRF3, o 1 clique é sempre a ação
+>   certa e reanalisa com as peças em mãos.
+
 ### Fase 4 — Fechamento do ciclo (aprovação → minuta → concluído)
 
 - Plano aprovado → `chat_service` elabora com a skill certa

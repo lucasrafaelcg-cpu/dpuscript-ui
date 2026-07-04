@@ -67,7 +67,7 @@ _configurar_logging()
 # Versao do painel — fonte unica. Usada pelo FastAPI (OpenAPI/docs) e tambem
 # exposta a todos os templates via Jinja globals (renderizada no rodape da
 # sidebar). Para incrementar: mude aqui e so aqui.
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 
 app = FastAPI(title="oficio-geral-ui", version=APP_VERSION)
 app.state.jinja = jinja2.Environment(

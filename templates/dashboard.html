@@ -158,10 +158,10 @@
                     <div class="text-xs text-base-content/50 truncate-1"
                          x-text="(item.data ? '[' + item.data + '] ' : '') + (item.descricao || '')"></div>
                   </div>
-                  <a class="btn btn-primary btn-xs normal-case shrink-0"
-                     :href="'/paj/' + item.paj_norm + '?tab=prompt'"
-                     :title="'Abrir a Situação do PAJ ' + item.paj"
-                     x-text="acaoLabel(item)"></a>
+                  <button class="btn btn-primary btn-xs normal-case shrink-0"
+                          @click="acaoTriagem(item)"
+                          :title="ehUmClique(item) ? 'Baixa as peças do PJe, roda OCR e executa a análise FIRAC (1 clique)' : ('Abrir a Situação do PAJ ' + item.paj)"
+                          x-text="acaoLabel(item)"></button>
                   <button class="btn btn-ghost btn-xs normal-case shrink-0 text-base-content/60"
                           @click="concluir(item)"
                           title="Remover da fila (triagem concluída)">Concluir</button>

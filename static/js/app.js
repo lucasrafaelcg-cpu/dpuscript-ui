@@ -453,11 +453,21 @@ function triagemBox() {
                 itens: this.itens.filter(i => i.tipo === tipo),
             })).filter(g => g.itens.length > 0);
         },
+        // Intimação TRF3 = ação de 1 clique (peças do PJe + OCR + FIRAC). A
+        // análise automática do sync roda SEM as peças, então mesmo com
+        // situacao_pronta o defensor ainda precisa puxar as peças e reanalisar.
+        ehUmClique(item) { return item.tipo === 'intimacao' && item.trf3; },
         acaoLabel(item) {
-            // Análise FIRAC automática já rodou → o botão vira leitura direta.
+            if (this.ehUmClique(item)) return 'Puxar peças + FIRAC';
             if (item.situacao_pronta) return 'Ver análise ✓';
-            if (item.tipo === 'intimacao' && item.trf3) return 'Puxar peças + analisar';
             return ACOES[item.tipo] || 'Analisar';
+        },
+        acaoTriagem(item) {
+            if (this.ehUmClique(item) && typeof puxarEAnalisarPje === 'function') {
+                puxarEAnalisarPje(item.paj_norm);  // stream SSE + redireciona ao concluir
+            } else {
+                window.location.href = '/paj/' + encodeURIComponent(item.paj_norm) + '?tab=prompt';
+            }
         },
         corBadge(tipo) { return CORES[tipo] || 'badge-ghost'; },
         async concluir(item) {
@@ -580,6 +590,41 @@ function puxarPecasPje(pajNorm) {
                         modal.removeEventListener('close', once); window.location.reload();
                     });
                 } else { window.location.reload(); }
+            }, 800);
+        });
+}
+
+/* Botão 1 clique (intimação): puxa peças do PJe (download + OCR) E roda a
+   análise FIRAC, tudo numa stream só. Ao concluir, abre a Situação do PAJ. */
+function puxarEAnalisarPje(pajNorm) {
+    _pjeStream(pajNorm,
+        '/api/paj/' + encodeURIComponent(pajNorm) + '/pje/intimacao/stream',
+        'Intimação: peças do PJe + análise FIRAC (1 clique)',
+        function(res, logEl) {
+            logEl.textContent += '\n========================================\n';
+            if (!res.ok) {
+                logEl.textContent += 'NÃO concluído: ' + (res.erro || '') + '\n';
+                if (res.sem_habilitacao) {
+                    logEl.textContent += '→ Você não está habilitado neste processo no PJe.\n';
+                }
+                if (res.etapa === 'firac' && res.arquivo) {
+                    logEl.textContent += '(As peças foram baixadas com sucesso; apenas a análise FIRAC falhou — '
+                        + 'use "Gerar análise FIRAC" na aba Situação do PAJ.)\n';
+                }
+                logEl.scrollTop = logEl.scrollHeight;
+                return;
+            }
+            logEl.textContent += 'Peças baixadas + análise FIRAC concluída. Abrindo a Situação do PAJ...\n';
+            logEl.scrollTop = logEl.scrollHeight;
+            showToast('Peças + análise FIRAC prontas — abrindo', 'success');
+            var dest = '/paj/' + encodeURIComponent(pajNorm) + '?tab=prompt';
+            setTimeout(function() {
+                var modal = document.getElementById('sync-modal');
+                if (modal && modal.open) {
+                    modal.addEventListener('close', function once() {
+                        modal.removeEventListener('close', once); window.location.href = dest;
+                    });
+                } else { window.location.href = dest; }
             }, 800);
         });
 }
