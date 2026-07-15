@@ -4,6 +4,11 @@ Interface web para o pipeline **dpuscript** — sistema de monitoramento para De
 
 > Desenvolvido para uso interno na DPU. Projeto pessoal, sem vínculo institucional oficial.
 
+> **Integração SIS DPU (este fork).** Versão derivada do DPU-script-SIS com
+> features adicionais: integração **PJe/TRF3** (só leitura), análise **FIRAC**,
+> caixa de triagem, situação do PAJ e planejar. Veja o [CHANGELOG](CHANGELOG.md)
+> para a lista de features e como puxar cada uma isoladamente.
+
 ---
 
 ## O que é
