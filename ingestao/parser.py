@@ -27,6 +27,15 @@ RE_PROCESSO_JUDICIAL = re.compile(
     r"PROCESSO\s+JUDICIAL\s+VINCULADO\s*:\s*([0-9\-\.]+)(?:\s*\(([^)]+)\))?",
     re.IGNORECASE,
 )
+# Número do processo que aparece NO CORPO das movimentações (não no cabeçalho
+# estruturado). Casos reais: PAJ aberto por intimação, cujo cabeçalho não traz
+# "PROCESSO JUDICIAL VINCULADO", mas cuja movimentação tem
+# "Remessa ao Gabinete: Número do Processo Judicial: <20 dígitos>".
+RE_PROC_JUD_ROTULO = re.compile(
+    r"N[uú]mero\s+do\s+Processo\s+Judicial\s*:\s*([\d.\-]{15,25})", re.IGNORECASE,
+)
+# CNJ já mascarado em qualquer lugar do texto (fallback conservador).
+RE_CNJ_MASCARADO = re.compile(r"\b(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})\b")
 RE_PRAZO_CRITICO = re.compile(
     r"PRAZO\s+CR[IÍ]TICO\s*:\s*(\d{2}/\d{2}/\d{4})\s*(?:—|-|:)?\s*(.+)?",
     re.IGNORECASE,
@@ -75,6 +84,37 @@ def derivar_foro(pretensao: str) -> str:
         return "?"
     token = m.group(1).lower()
     return AREAS_CANONICAS.get(token, m.group(1).title())
+
+
+def formatar_cnj(numero: str) -> str:
+    """Normaliza um número de processo para a máscara CNJ padrão.
+
+    20 dígitos -> NNNNNNN-DD.AAAA.J.TR.OOOO (como os demais PAJs guardam).
+    Já mascarado ou formato desconhecido: devolve o texto apenas aparado."""
+    if not numero:
+        return ""
+    d = re.sub(r"\D", "", numero)
+    if len(d) == 20:
+        return f"{d[0:7]}-{d[7:9]}.{d[9:13]}.{d[13:14]}.{d[14:16]}.{d[16:20]}"
+    return numero.strip()
+
+
+def extrair_processo_das_movs(movs: list[dict]) -> str:
+    """Procura o número do processo judicial no corpo das movimentações.
+
+    Fallback para PAJs abertos por intimação: o cabeçalho do SISDPU não traz
+    "PROCESSO JUDICIAL VINCULADO", mas o número consta numa movimentação
+    ("Número do Processo Judicial: ...") — normalmente sem máscara. Percorre na
+    ordem das movimentações e devolve o primeiro número achado, já mascarado
+    (CNJ), ou "" se não houver."""
+    for mv in movs or []:
+        texto = " ".join(
+            str(mv.get(k) or "") for k in ("descricao", "movimentacao", "fases")
+        )
+        m = RE_PROC_JUD_ROTULO.search(texto) or RE_CNJ_MASCARADO.search(texto)
+        if m:
+            return formatar_cnj(m.group(1))
+    return ""
 
 
 def parsear_header(linhas: list[str]) -> dict:
@@ -230,6 +270,11 @@ def montar_metadata(paj_norm: str, texto_sisdpu: str) -> dict:
         max(movs, key=lambda m: (m.get("data") or ""), default={}) if movs else {}
     )
 
+    # Processo judicial: preferimos o do cabeçalho ("PROCESSO JUDICIAL
+    # VINCULADO"); quando ausente (PAJ aberto por intimação), buscamos no corpo
+    # das movimentações ("Número do Processo Judicial: ...").
+    processo_judicial = header.get("processo_judicial", "") or extrair_processo_das_movs(movs)
+
     prazos_abertos: list[dict] = []
     if header.get("prazo_critico"):
         dias: int | str = ""
@@ -257,7 +302,7 @@ def montar_metadata(paj_norm: str, texto_sisdpu: str) -> dict:
         "foro_detectado": foro_area,
         "foro_detalhado": header.get("foro_detalhado", ""),
         "classificacao": pretensao or "?",
-        "processo_judicial": header.get("processo_judicial", ""),
+        "processo_judicial": processo_judicial,
         "data_mov_caixa": ultima_mov.get("data") or data_abertura_iso,
         "desc_mov_caixa": (ultima_mov.get("descricao") or "")[:500],
         "data_abertura": data_abertura_iso,
