@@ -60,6 +60,34 @@ def _env_sem_claudecode() -> dict:
     return env
 
 
+def classificar_erro_claude(proc) -> str:
+    """Mensagem de erro util a partir de um subprocess do Claude CLI que falhou.
+
+    O CLI em `--print` emite erros de autenticacao/rede no STDOUT (nao no
+    stderr) — por isso a mensagem antiga ("Claude saiu com codigo 1: ") vinha
+    vazia. Aqui combinamos os dois fluxos e detectamos o caso mais comum no
+    painel: token OAuth expirado (401), devolvendo orientacao acionavel em vez
+    de so o codigo de saida.
+    """
+    stderr = (proc.stderr or "").strip()
+    stdout = (proc.stdout or "").strip()
+    saida = (stderr + "\n" + stdout).strip()
+    baixo = saida.lower()
+    if (
+        "401" in saida
+        or "invalid authentication" in baixo
+        or "failed to authenticate" in baixo
+        or "oauth token has expired" in baixo
+    ):
+        return (
+            "Falha de autenticacao do Claude CLI (401) — o token de login "
+            "provavelmente expirou. Rode `claude` num terminal e refaca o login "
+            "(/login); depois reinicie o painel para o subprocesso usar o token novo."
+        )
+    trecho = saida[-500:] if saida else "(sem saida no stdout/stderr)"
+    return f"Claude saiu com codigo {proc.returncode}: {trecho}"
+
+
 def _ler_movimentacoes(meta: dict) -> str:
     det = meta.get("detalhes_sisdpu", {}) or {}
     movs = det.get("movimentacoes") or []
@@ -300,7 +328,7 @@ async def planejar_elaboracao(
     if proc.returncode != 0:
         return {
             "ok": False,
-            "erro": f"Claude saiu com codigo {proc.returncode}: {proc.stderr[-500:]}",
+            "erro": classificar_erro_claude(proc),
             "stdout": proc.stdout[-500:],
         }
 

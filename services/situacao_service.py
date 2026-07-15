@@ -21,7 +21,7 @@ import threading
 
 from config import PAJS_DIR
 from services.chat_service import CLAUDE_CMD
-from services.planejar_service import _env_sem_claudecode
+from services.planejar_service import _env_sem_claudecode, classificar_erro_claude
 from services.prompt_builder import SITUACAO_FILE, gerar_prompt_max, montar_contexto
 
 logger = logging.getLogger("situacao")
@@ -37,6 +37,33 @@ _lock = threading.Lock()
 _fila_auto: asyncio.Queue[str] | None = None
 _na_fila: set[str] = set()
 _worker_task: asyncio.Task | None = None
+
+
+def analise_cega_intimacao_trf3(metadata: dict) -> bool:
+    """True se a análise FIRAC automática do sync seria CEGA para este PAJ.
+
+    O sync não abre o Chrome, então uma FIRAC automática de intimação roda sem
+    as peças do processo. Para intimação a ação certa é sempre o fluxo de 1
+    clique (Fase 3c): baixa as peças + OCR e só então roda a FIRAC (com o
+    processo em mãos). Adiamos a análise automática nesses casos, evitando
+    marcar "análise pronta" — ou pior, SOBRESCREVER uma FIRAC boa — sobre uma
+    leitura cega. Vide docs/FLUXO_DE_TRABALHO.md (Fase 3b × 3c).
+
+    Adia quando o evento é intimação E:
+    - `pje_intimacao_pendente` — peças ainda não baixadas (intimação nova); ou
+    - `pje_ultima_intimacao` / `pje_pecas_puxadas_em` — peças JÁ puxadas: a FIRAC
+      informada por elas não pode ser substituída por uma releitura cega do sync.
+    """
+    from services.triagem_service import TIPO_INTIMACAO
+
+    ev = metadata.get("evento_triagem") or {}
+    if ev.get("tipo") != TIPO_INTIMACAO:
+        return False
+    return bool(
+        metadata.get("pje_intimacao_pendente")
+        or metadata.get("pje_ultima_intimacao")
+        or metadata.get("pje_pecas_puxadas_em")
+    )
 
 
 def agendar_analise(paj_norm: str) -> bool:
@@ -226,8 +253,7 @@ async def _gerar_situacao_exclusivo(paj_norm: str, pasta, prompt: str,
         return {"ok": False, "erro": f"{type(e).__name__}: {e}"}
 
     if proc.returncode != 0:
-        return {"ok": False,
-                "erro": f"Claude saiu com código {proc.returncode}: {proc.stderr[-400:]}"}
+        return {"ok": False, "erro": classificar_erro_claude(proc)}
 
     texto = (proc.stdout or "").strip()
     if len(texto) < 80:

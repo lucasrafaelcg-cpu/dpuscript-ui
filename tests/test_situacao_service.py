@@ -110,6 +110,55 @@ def test_gerar_situacao_rejeita_concorrencia(paj_tmp):
         ss._em_andamento.discard("PAJ-2026-020-00001")
 
 
+# --- analise_cega_intimacao_trf3 (Fase 3b × 3c) ---------------------------------
+
+def test_intimacao_trf3_pendente_adia_analise_auto():
+    """Intimação TRF3 com peças pendentes → análise do sync seria cega → adia."""
+    meta = {
+        "evento_triagem": {"tipo": "intimacao"},
+        "pje_intimacao_pendente": {"numero": "5001234-00.2026.4.03.6130"},
+    }
+    assert ss.analise_cega_intimacao_trf3(meta) is True
+
+
+def test_intimacao_sem_pje_pendente_analisa_normal():
+    """Intimação não-TRF3 (sem peças a puxar) → análise automática roda normal."""
+    meta = {"evento_triagem": {"tipo": "intimacao"}}
+    assert ss.analise_cega_intimacao_trf3(meta) is False
+
+
+def test_retorno_com_pje_pendente_ainda_analisa():
+    """Evento não é intimação → não adia, mesmo com flag PJe remanescente."""
+    meta = {
+        "evento_triagem": {"tipo": "retorno_assistido"},
+        "pje_intimacao_pendente": {"numero": "x"},
+    }
+    assert ss.analise_cega_intimacao_trf3(meta) is False
+
+
+def test_sem_evento_nao_adia():
+    assert ss.analise_cega_intimacao_trf3({}) is False
+
+
+def test_intimacao_com_pecas_ja_puxadas_adia():
+    """Peças já baixadas (pje_pecas_puxadas_em) → sync NÃO pode sobrescrever a
+    FIRAC informada pelas peças com uma releitura cega."""
+    meta = {
+        "evento_triagem": {"tipo": "intimacao"},
+        "pje_pecas_puxadas_em": "2026-07-06T17:26:00",
+    }
+    assert ss.analise_cega_intimacao_trf3(meta) is True
+
+
+def test_intimacao_com_ultima_intimacao_arquivada_adia():
+    """pje_ultima_intimacao (flag arquivado após puxar peças) também adia."""
+    meta = {
+        "evento_triagem": {"tipo": "intimacao"},
+        "pje_ultima_intimacao": {"numero": "5001234-00.2026.4.03.6130"},
+    }
+    assert ss.analise_cega_intimacao_trf3(meta) is True
+
+
 # --- Fila automática (análise sem botão) ----------------------------------------
 
 @pytest.fixture

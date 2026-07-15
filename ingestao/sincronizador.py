@@ -32,6 +32,21 @@ import contextlib
 
 PAJ_REGEX = re.compile(r"^(\d{4})/(\d{3})-(\d+)$")
 
+# Campos de ESTADO DO FLUXO gravados pelos serviços (PJe, triagem) DEPOIS do
+# sync. O metadata.json e' reconstruido do zero pelo parser a cada sync (so a
+# partir do sisdpu.txt), entao sem preservar estes campos cada sincronizacao da
+# caixa apagaria o registro de que as pecas do PJe foram puxadas, a intimacao
+# tratada e o evento de triagem detectado — fazendo as acoes de sessoes
+# anteriores "sumirem" do PAJ. Preservados em AMBOS os ramos (caixa e busca
+# global), antes das etapas de prazo/triagem que podem sobrescreve-los com
+# valores novos legitimos.
+_CAMPOS_ESTADO_PRESERVAR = (
+    "pje_intimacao_pendente",
+    "pje_ultima_intimacao",
+    "pje_pecas_puxadas_em",
+    "evento_triagem",
+)
+
 
 def _decompor_paj(paj: str) -> tuple[str, str, str] | None:
     """'2026/044-00311' -> ('2026', '044', '00311'). None se invalido."""
@@ -698,6 +713,15 @@ async def _processar_paj_pos_detalhamento(
         etiqueta = (item.get("etiqueta") or "").strip()
         metadata["etiqueta_sisdpu"] = etiqueta
 
+    # Preserva o estado do fluxo escrito pelos servicos (PJe/triagem) entre
+    # syncs. O parser nunca produz estes campos, entao copiamos do metadata
+    # anterior quando ausentes — as etapas de prazo (pje_intimacao_pendente) e
+    # de triagem (evento_triagem) mais abaixo ainda podem sobrescrever com
+    # valores novos legitimos desta sync.
+    for _campo in _CAMPOS_ESTADO_PRESERVAR:
+        if _campo not in metadata and _campo in meta_antiga:
+            metadata[_campo] = meta_antiga[_campo]
+
     (pasta / "metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
@@ -766,9 +790,16 @@ async def _processar_paj_pos_detalhamento(
                 # atrasar o sync. Desligável com SITUACAO_AUTO=false no .env.
                 from config import SITUACAO_AUTO
                 if SITUACAO_AUTO:
-                    from services.situacao_service import agendar_analise
+                    from services.situacao_service import (
+                        agendar_analise, analise_cega_intimacao_trf3,
+                    )
 
-                    if agendar_analise(paj_norm):
+                    # Intimação TRF3: a análise do sync seria cega (sem as peças
+                    # do PJe). Adia para o 1-clique (Fase 3c), que baixa as peças
+                    # antes da FIRAC — não marca "análise pronta" sobre leitura cega.
+                    if analise_cega_intimacao_trf3(metadata):
+                        log("  [situacao] intimação TRF3 — análise adiada p/ o 1-clique (peças do PJe)")
+                    elif agendar_analise(paj_norm):
                         log("  [situacao] análise FIRAC automática enfileirada")
         except Exception as e:
             log(f"  [triagem] erro: {type(e).__name__}: {e}")
