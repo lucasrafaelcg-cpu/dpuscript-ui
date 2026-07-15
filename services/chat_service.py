@@ -79,6 +79,20 @@ def _resolver_claude_cmd() -> list[str]:
 CLAUDE_CMD: list[str] = _resolver_claude_cmd()
 
 
+def _tem_peca_gerada(pasta: Path) -> bool:
+    """True se a pasta do PAJ tem ao menos um arquivo-peça (fora os de sistema).
+
+    Mesma regra de `ler_elaboracao_disco`: qualquer arquivo na raiz que não
+    esteja em `ARQUIVOS_NAO_PECAS` (IGNORAR) é produto do defensor/Claude."""
+    try:
+        return any(
+            x.is_file() and x.name not in ARQUIVOS_NAO_PECAS
+            for x in pasta.iterdir()
+        )
+    except Exception:
+        return False
+
+
 def _formatar_plano_aprovado(plano: dict) -> str:
     """Formata um plano de atuacao (aprovado no fluxo Planejar) como bloco de texto
     para injetar na instrucao do Claude. Vazio se o plano nao tiver conteudo util."""
@@ -517,6 +531,18 @@ class ChatSession:
                 status=self.status,
                 resumo=historico._primeira_linha_util(self.summary),
             )
+
+        # Fase 4 do fluxo (docs/FLUXO_DE_TRABALHO.md): elaboração concluída com
+        # peça/despacho/mensagem gravada na pasta → tira o evento da Caixa de
+        # triagem. Idempotente; uma movimentação nova reabre o evento no sync.
+        with contextlib.suppress(Exception):
+            if self.status == "done" and _tem_peca_gerada(PAJS_DIR / self.paj_norm):
+                from services.triagem_service import concluir_evento
+
+                if concluir_evento(self.paj_norm):
+                    historico.registrar(
+                        self.paj_norm, "triagem_concluida", motivo="elaboracao"
+                    )
 
 
 def ler_elaboracao_disco(paj_norm: str) -> dict | None:

@@ -139,6 +139,14 @@ async def gerar_artefato(
                     origem_txt=arquivo_txt,
                     arquivo=destino.name,
                 )
+            # Fase 4 do fluxo: artefato final gravado no PAJ → tira o evento da
+            # Caixa de triagem (idempotente; nova movimentação reabre no sync).
+            with contextlib.suppress(Exception):
+                from services.triagem_service import concluir_evento
+
+                if concluir_evento(paj_norm):
+                    yield "[triagem] evento concluído — saiu da Caixa de triagem\n"
+                    historico.registrar(paj_norm, "triagem_concluida", motivo=f"gerar_{formato}")
         except Exception as e:
             yield f"[AVISO] gerado em {origem} mas falhou ao copiar: {e}\n"
     else:

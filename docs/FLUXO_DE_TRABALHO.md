@@ -147,6 +147,11 @@ Planejar: plano estruturado → modal de revisão → aprovação do Defensor.
 > Claude CLI por vez, sem atrasar o sync). A Caixa de triagem mostra
 > "Ver análise ✓" quando a análise já está pronta (SITUACAO.md mais novo que
 > a detecção do evento). Desligável com `SITUACAO_AUTO=false` no `.env`.
+>
+> **Ajuste (guard 3b × 3c):** intimação de TRF3 com peças pendentes NÃO é
+> analisada automaticamente pelo sync (seria uma FIRAC cega, sem as peças do
+> PJe). Esses PAJs são deixados para o 1 clique da Fase 3c, que baixa as peças
+> antes de rodar a análise. Decisão em `situacao_service.analise_cega_intimacao_trf3`.
 
 ### Fase 3c — Intimação em 1 clique (peças do PJe + FIRAC encadeados)
 
@@ -169,10 +174,20 @@ Planejar: plano estruturado → modal de revisão → aprovação do Defensor.
 
 ### Fase 4 — Fechamento do ciclo (aprovação → minuta → concluído)
 
+> **Status: IMPLEMENTADO** — ao concluir uma elaboração com peça/despacho/
+> mensagem gravada na pasta do PAJ, o `evento_triagem` é marcado como
+> `concluido` e some da Caixa de triagem. Idempotente e reabre no sync quando
+> chega movimentação nova.
+>
+> - Gancho principal: `chat_service.ChatSession._persist` — ao terminar o turno
+>   (`status == "done"`) com peça na pasta (`_tem_peca_gerada`, mesma regra de
+>   `IGNORAR` do `paj_service`), chama `triagem_service.concluir_evento`.
+> - Gancho secundário: `docgen_service.gerar_artefato` — ao gravar o DOCX/PDF
+>   final no PAJ (cobre peça elaborada em sessão anterior).
+> - Registrado no histórico como `triagem_concluida` (motivo: elaboracao / gerar_*).
+
 - Plano aprovado → `chat_service` elabora com a skill certa
   (`redigir` | `despacho` | `mensagem`) — já existe.
-- Ao gravar a peça/mensagem na pasta do PAJ, marcar
-  `evento_triagem.status = concluido` (e limpar da fila).
 - O item some da Caixa de triagem; histórico permanece no `triagem.jsonl`
   e no Pipeline monitor.
 
