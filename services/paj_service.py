@@ -21,6 +21,7 @@ from typing import Annotated
 from fastapi import Path as FastApiPath
 
 from config import PAJS_DIR, PECAS_FEITAS_DIR
+from services import triagem_service
 
 
 # Type alias para parametros de rota — FastAPI valida o pattern e retorna 422
@@ -215,6 +216,12 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
         )
         max_seq_mov = max((int(m.get("seq", 0) or 0) for m in movs), default=0)
 
+        # Coluna "Última movimentação": classifica o evento mais recente entre
+        # os 4 fluxos que o Defensor acompanha (retorno / abertura / intimação /
+        # resposta de ofício), pulando decurso automático e conclusões
+        # genéricas (regra anti-fantasma em triagem_service).
+        ultima_movimentacao = triagem_service.classificar_ultima_movimentacao(movs)
+
         # Contagem de pecas GERADAS pelo defensor/Claude (na raiz do PAJ)
         n_pecas_geradas = 0
         for f in pasta.iterdir():
@@ -253,6 +260,9 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
             "prazos_abertos": metadata.get("prazos_abertos", []),
             "ultima_mov_desc": (ultima_mov.get("descricao") or "")[:120],
             "ultima_mov_data": ultima_mov.get("data", ""),
+            # {"tipo","label","seq","data"} do último evento classificável entre
+            # os 4 fluxos da caixa, ou None se nada recente se qualifica.
+            "ultima_movimentacao": ultima_movimentacao,
             "status_sisdpu": (det.get("status_paj") or "").strip(),
             "em_caixa_atual": not esta_concluido,
             "concluido_em": _ler_concluido_em(metadata) if esta_concluido else "",

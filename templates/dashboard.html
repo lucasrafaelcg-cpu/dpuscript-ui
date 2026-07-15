@@ -176,7 +176,7 @@
 
   <!-- Filter Bar -->
   <section class="px-8 pb-4">
-    <div class="bg-base-300 rounded-xl border border-base-content/5 p-2 flex items-center gap-2 overflow-x-auto">
+    <div class="bg-base-300 rounded-xl border border-base-content/5 p-2 flex flex-wrap items-center gap-2">
 
       <!-- Busca (expande) -->
       <label class="flex-1 min-w-[200px] flex items-center gap-2 px-3 h-10 chip-input rounded-lg">
@@ -224,10 +224,22 @@
         <svg class="w-3.5 h-3.5 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"></path></svg>
       </label>
 
+      <!-- Última movimentação -->
+      <label class="flex items-center gap-2 px-3 h-10 chip-input rounded-lg cursor-pointer" x-show="opcoesMov.length">
+        <svg class="w-4 h-4 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"></path></svg>
+        <select x-model="filtroMov" @change="aplicarFiltros()" class="bg-transparent text-sm focus:outline-none cursor-pointer appearance-none pr-1 min-w-[150px]">
+          <option value="">Todas as movimentações</option>
+          <template x-for="m in opcoesMov" :key="m">
+            <option :value="m" x-text="labelMov(m)"></option>
+          </template>
+        </select>
+        <svg class="w-3.5 h-3.5 text-base-content/50 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"></path></svg>
+      </label>
+
       <!-- Limpar -->
       <button type="button"
               class="btn btn-ghost btn-sm normal-case text-base-content/60 hover:text-base-content gap-1.5"
-              x-show="filtroOficio || filtroForo || filtroClassif || busca"
+              x-show="filtroOficio || filtroForo || filtroClassif || filtroMov || busca"
               @click="limparFiltros()" x-transition.opacity>
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"></path></svg>
         Limpar
@@ -236,13 +248,19 @@
 
     <!-- Chips de filtros ativos -->
     <div class="flex items-center gap-2 mt-2.5 text-xs text-base-content/50 min-h-[20px] flex-wrap"
-         x-show="filtroOficio || filtroForo || filtroClassif || busca"
+         x-show="filtroOficio || filtroForo || filtroClassif || filtroMov || busca"
          x-transition.opacity>
       <span>Filtrando por:</span>
       <template x-if="filtroForo">
         <span class="badge badge-sm badge-ghost gap-1">
           <span x-text="filtroForo"></span>
           <button @click.stop="filtroForo = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
+        </span>
+      </template>
+      <template x-if="filtroMov">
+        <span class="badge badge-sm badge-ghost gap-1">
+          <span x-text="labelMov(filtroMov)"></span>
+          <button @click.stop="filtroMov = ''; aplicarFiltros()" class="ml-1 opacity-60 hover:opacity-100">×</button>
         </span>
       </template>
       <template x-if="filtroOficio">
@@ -281,6 +299,7 @@
           Data <span x-text="iconOrdem('data_caixa')"></span>
         </button>
       </div>
+      <div class="w-[150px]">Última mov.</div>
       <div class="w-[76px] text-center">Anexos</div>
       <div class="w-5 shrink-0"></div>
       <div class="w-[200px] text-right pr-1">Elaboração</div>
@@ -359,6 +378,24 @@
             <div class="w-[88px] shrink-0">
               <div class="font-mono text-xs text-base-content/80 tnum" x-text="formatarData(paj.data_caixa)"></div>
               <div class="text-[10px] text-base-content/40 mt-0.5" x-text="dataRelativa(paj.data_caixa)"></div>
+            </div>
+
+            <!-- Última movimentação -->
+            <div class="w-[150px] shrink-0">
+              <template x-if="paj.ultima_movimentacao">
+                <span class="badge badge-sm font-medium border whitespace-nowrap"
+                      :class="{
+                        'bg-primary/15 text-primary border-primary/30': paj.ultima_movimentacao.tipo === 'retorno_assistido',
+                        'bg-success/15 text-success border-success/30': paj.ultima_movimentacao.tipo === 'abertura_paj',
+                        'bg-warning/15 text-warning border-warning/30': paj.ultima_movimentacao.tipo === 'intimacao',
+                        'bg-info/15 text-info border-info/30': paj.ultima_movimentacao.tipo === 'resposta_oficio'
+                      }"
+                      :title="paj.ultima_movimentacao.data ? ('em ' + paj.ultima_movimentacao.data) : ''"
+                      x-text="paj.ultima_movimentacao.label"></span>
+              </template>
+              <template x-if="!paj.ultima_movimentacao">
+                <span class="text-xs text-base-content/30">—</span>
+              </template>
             </div>
 
             <!-- Peças -->
@@ -453,6 +490,7 @@ function dashboardApp() {
         filtroOficio: '',
         filtroForo: '',
         filtroClassif: '',
+        filtroMov: '',
         busca: '',
         ordemCampo: 'data_caixa',
         ordemAsc: false,
@@ -479,6 +517,7 @@ function dashboardApp() {
             this.filtroOficio = '';
             this.filtroForo = '';
             this.filtroClassif = '';
+            this.filtroMov = '';
             this.busca = '';
             this.aplicarFiltros();
         },
@@ -568,6 +607,30 @@ function dashboardApp() {
             )].sort();
         },
 
+        // Opções do filtro "Última movimentação": só os tipos presentes nos
+        // dados, na ordem canônica dos 4 fluxos, + "sem movimentação" quando
+        // houver PAJs sem evento classificável recente ("—" na coluna).
+        get opcoesMov() {
+            const ordem = ['retorno_assistido', 'abertura_paj', 'intimacao', 'resposta_oficio'];
+            const presentes = new Set(
+                this.pajs.map(p => p.ultima_movimentacao && p.ultima_movimentacao.tipo).filter(Boolean)
+            );
+            const opts = ordem.filter(t => presentes.has(t));
+            if (this.pajs.some(p => !p.ultima_movimentacao)) opts.push('__none__');
+            return opts;
+        },
+
+        labelMov(tipo) {
+            const mapa = {
+                retorno_assistido: 'Retorno do assistido',
+                abertura_paj: 'Abertura de PAJ',
+                intimacao: 'Intimação',
+                resposta_oficio: 'Resposta de ofício',
+                __none__: 'Sem movimentação recente',
+            };
+            return mapa[tipo] || tipo;
+        },
+
         // Mapeia o valor cru de `paj.foro` (sem acentos, vindo do parser do
         // SISDPU) para o rótulo de exibição com ortografia portuguesa correta.
         // Mantém o valor original quando não houver mapeamento conhecido.
@@ -605,6 +668,13 @@ function dashboardApp() {
             }
             if (this.filtroClassif) {
                 lista = lista.filter(p => p.classificacao === this.filtroClassif);
+            }
+            if (this.filtroMov) {
+                if (this.filtroMov === '__none__') {
+                    lista = lista.filter(p => !p.ultima_movimentacao);
+                } else {
+                    lista = lista.filter(p => p.ultima_movimentacao && p.ultima_movimentacao.tipo === this.filtroMov);
+                }
             }
             if (this.busca) {
                 const q = this.busca.toLowerCase();

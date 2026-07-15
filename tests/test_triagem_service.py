@@ -162,6 +162,57 @@ def test_janela_limita_busca():
     assert ts.detectar_evento_recente(movs, max_janela=10) is None
 
 
+# --- classificar_ultima_movimentacao: coluna "Última mov." da caixa ----------------
+
+def test_ultima_mov_rotulos_curtos():
+    """Os 4 fluxos da caixa usam os nomes exatos pedidos pelo Defensor."""
+    casos = {
+        ts.TIPO_RETORNO: ("Atendimento de retorno.", "Retorno do assistido"),
+        ts.TIPO_ABERTURA: ("Redistribuição do PAJ à unidade de Osasco.", "Abertura de PAJ"),
+        ts.TIPO_INTIMACAO: ("Intimação eletrônica — prazo de 15 dias.", "Intimação"),
+        ts.TIPO_RESPOSTA_OFICIO: ("Resposta de ofício do INSS.", "Resposta de ofício"),
+    }
+    for tipo, (descricao, label) in casos.items():
+        r = ts.classificar_ultima_movimentacao([_mov(5, descricao=descricao)])
+        assert r["tipo"] == tipo
+        assert r["label"] == label
+
+
+def test_ultima_mov_pula_decurso_e_mostra_evento_real():
+    """Decurso automático por cima da intimação: a coluna mostra a intimação."""
+    movs = [
+        _mov(50, descricao="Intimação eletrônica — prazo de 15 dias."),
+        _mov(51, fases="Decurso de prazo",
+             descricao='PAJ em decurso com situação "EFETIVADO" a pedido do Defensor.'),
+    ]
+    r = ts.classificar_ultima_movimentacao(movs)
+    assert r["tipo"] == ts.TIPO_INTIMACAO
+    assert r["seq"] == 50
+
+
+def test_ultima_mov_controle_prazo_puro_nao_aparece():
+    """Só há controle de prazo: não é um dos 4 fluxos → coluna vazia (None)."""
+    movs = [_mov(60, fases="Decurso de prazo",
+                 descricao='PAJ em decurso com situação "EFETIVADO".')]
+    assert ts.classificar_ultima_movimentacao(movs) is None
+
+
+def test_ultima_mov_ignora_conclusao_duplicidade():
+    """Mesma regra anti-fantasma: conclusão genérica posterior não mascara."""
+    movs = [
+        _mov(70, descricao="Atendimento de retorno com juntada de documentos."),
+        _mov(71, descricao="Concluso.", fases="Concluso ao defensor"),
+    ]
+    r = ts.classificar_ultima_movimentacao(movs)
+    assert r["tipo"] == ts.TIPO_RETORNO
+    assert r["seq"] == 70
+
+
+def test_ultima_mov_sem_evento_retorna_none():
+    movs = [_mov(1, descricao="Concluso."), _mov(2, descricao="Juntada de guia.")]
+    assert ts.classificar_ultima_movimentacao(movs) is None
+
+
 # --- atualizar_evento_triagem (gancho do sincronizador) -----------------------------
 
 def _meta(movs):

@@ -90,6 +90,47 @@ def classificar_movimentacao(mov: dict) -> str | None:
     return None
 
 
+# Tipos exibidos na coluna "Última movimentação" da caixa. controle_prazo
+# fica FORA de propósito: decurso automático é ruído de sistema, e o Defensor
+# pediu para não considerar movimentação-fantasma de controle de prazo.
+TIPOS_MOVIMENTACAO_CAIXA = (
+    TIPO_RETORNO, TIPO_ABERTURA, TIPO_INTIMACAO, TIPO_RESPOSTA_OFICIO,
+)
+
+# Rótulos curtos para a coluna da caixa (os nomes exatos pedidos pelo Defensor).
+# LABELS (mais descritivos) seguem para a fila de triagem/PROMPT_MAX.
+LABELS_CAIXA = {
+    TIPO_RETORNO: "Retorno do assistido",
+    TIPO_ABERTURA: "Abertura de PAJ",
+    TIPO_INTIMACAO: "Intimação",
+    TIPO_RESPOSTA_OFICIO: "Resposta de ofício",
+}
+
+
+def classificar_ultima_movimentacao(movs: list[dict], max_janela: int = 10) -> dict | None:
+    """Última movimentação substantiva do PAJ para a coluna da caixa.
+
+    Mesma varredura da triagem (mais recente para trás, janela `max_janela`),
+    mas restrita aos 4 fluxos que o Defensor quer ver: retorno do assistido,
+    abertura de PAJ, intimação e resposta de ofício. Movimentações de controle
+    de prazo automático são PULADAS — quando o decurso está por cima do evento
+    real (ex. intimação), mostramos o evento real, não o decurso. Conclusões e
+    juntadas genéricas, duplicidade e decurso "PREVISTO" já não classificam em
+    `classificar_movimentacao`, então também são ignorados aqui.
+    """
+    movs_ord = sorted(movs or [], key=lambda m: int(m.get("seq", 0) or 0), reverse=True)
+    for mov in movs_ord[:max_janela]:
+        tipo = classificar_movimentacao(mov)
+        if tipo in TIPOS_MOVIMENTACAO_CAIXA:
+            return {
+                "tipo": tipo,
+                "label": LABELS_CAIXA[tipo],
+                "seq": mov.get("seq"),
+                "data": mov.get("data_original") or mov.get("data") or "",
+            }
+    return None
+
+
 def detectar_evento_recente(movs: list[dict], max_janela: int = 10) -> dict | None:
     """Evento mais recente que caracteriza encaminhamento ao defensor.
 
