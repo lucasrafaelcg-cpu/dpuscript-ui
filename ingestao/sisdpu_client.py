@@ -325,6 +325,94 @@ async def _login() -> None:
         raise
 
 
+async def sessao_bloqueada(page) -> bool:
+    """O SIS pos o dialogo "Login efetuado em outra estacao" na frente?
+
+    O SISDPU admite uma sessao por usuario. Quando o Defensor entra pelo
+    navegador com a sessao do painel aberta (ou vice-versa), o SIS BLOQUEIA a
+    sessao antiga e abre um modal pedindo a senha para desbloquear:
+
+        "Login <usuario> efetuado em outra estacao de Trabalho.
+         Digite a sua senha para desbloquear esta sessao."
+
+    A mascara desse modal (`...confirmDialogLogin_modal`) engole TODO clique.
+    Sem tratar, o efeito e' um `Page.click: Timeout 30000ms exceeded` sobre um
+    botao que o log descreve como "visible, enabled and stable" — mensagem que
+    nao diz nada sobre a causa. Foi o que derrubou o lote de 12/10/2026.
+    """
+    # O dialogo EXISTE em toda pagina do SIS, oculto. Nao da' para decidir por
+    # `display`: quem o esconde e' a classe `ui-hidden-container`, que vem da
+    # folha do PrimeFaces — sem o CSS carregado ele mede 500x75 e `display:
+    # block`. Os dois sinais que nao dependem de CSS sao o `aria-hidden`, que
+    # o PrimeFaces alterna ao abrir, e a MASCARA, que so' existe no DOM
+    # enquanto o modal esta' aberto (e' ela que intercepta o clique).
+    return await page.evaluate(
+        """() => {
+            const mask = document.querySelector('[id$="confirmDialogLogin_modal"]');
+            if (mask && getComputedStyle(mask).display !== 'none') return true;
+            const d = document.querySelector('[id$="confirmDialogLogin"]');
+            return !!(d && d.getAttribute('aria-hidden') === 'false');
+        }"""
+    )
+
+
+async def desbloquear_sessao(page) -> bool:
+    """Desbloqueia a sessao digitando a senha no modal. True se saiu.
+
+    Usa a MESMA credencial de `_login` — e' a sessao do proprio painel sendo
+    retomada, nao um login novo.
+
+    Os ids do dialogo sao gerados pelo JSF (`j_idt1257:...` numa pagina,
+    `j_idt249:...` noutra), entao nada aqui pode casar por id inteiro: o campo
+    e' o `input[type=password]` DENTRO do dialogo e o botao termina em
+    `:confirmTramitacao`.
+    """
+    if not await sessao_bloqueada(page):
+        return True
+
+    senha = os.environ.get("SISDPU_PASSWORD", "")
+    if not senha:
+        _log.error("sessao bloqueada e SISDPU_PASSWORD ausente no .env")
+        return False
+
+    _log.warning("sessao bloqueada por login em outra estacao — desbloqueando")
+    try:
+        campo = page.locator('[id$="confirmDialogLogin"] input[type="password"]')
+        await campo.wait_for(state="visible", timeout=10000)
+        await campo.fill(senha)
+
+        # O clique vai por JS, nao pelo mouse: a mascara do proprio modal
+        # cobre a tela e intercepta ponteiro. Tentar o clique real aqui seria
+        # cair na MESMA armadilha que estamos desarmando — 10s de timeout
+        # sobre um botao "visible, enabled and stable". `el.click()` dispara o
+        # onclick do PrimeFaces sem passar pela camada de ponteiro.
+        disparou = await page.evaluate(
+            """() => {
+                const b = document.querySelector('[id$=":confirmTramitacao"]');
+                if (!b) return false;
+                b.click();
+                return true;
+            }"""
+        )
+        if not disparou:
+            _log.error("botao de desbloqueio nao encontrado no dialogo")
+            return False
+        # O modal some quando o SIS aceita. Se a senha for recusada, ele fica.
+        await page.wait_for_function(
+            """() => {
+                const m = document.querySelector('[id$="confirmDialogLogin_modal"]');
+                return !m || getComputedStyle(m).display === 'none';
+            }""",
+            timeout=15000,
+        )
+        await _wait_pf_ajax(page, timeout=15000)
+        _log.info("sessao desbloqueada")
+        return True
+    except Exception as e:
+        _log.error("falha ao desbloquear a sessao: %s", e)
+        return False
+
+
 async def _ensure_logged_in() -> None:
     """Garante que estamos logados. Refaz login se sessao expirou."""
     global _browser, _page

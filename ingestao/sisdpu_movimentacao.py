@@ -93,6 +93,15 @@ def _e_fase_peticao(fase_texto: str) -> bool:
 
 async def _abrir_tela_movimentacao(page, paj_texto: str) -> None:
     """Clica em Movimentar e valida que a tela aberta e do PAJ pretendido."""
+    # Sessao bloqueada por login em outra estacao? O modal cobre a tela e
+    # nenhum clique chega ao destino. Desbloqueia antes de tentar.
+    if await sc.sessao_bloqueada(page):
+        if not await sc.desbloquear_sessao(page):
+            raise MovimentacaoAbortada(
+                "sessao do SISDPU bloqueada (login em outra estacao) e nao "
+                "consegui desbloquear — feche o SISDPU no navegador e repita"
+            )
+
     # O link existe sempre, mas nem sempre e' "clicavel" para o Playwright
     # (fora da area visivel ou coberto por overlay, conforme o estado da tela).
     # Tenta o clique normal e, se falhar, rola ate ele e dispara o onclick por
@@ -485,6 +494,17 @@ async def inserir_movimentacao(
             "com confirmar=True para efetivar."
         )
         return resultado
+
+    # O SIS pode ter bloqueado a sessao enquanto a tela era preenchida: basta
+    # o Defensor entrar no SISDPU pelo navegador. O modal de desbloqueio engole
+    # o clique, e o sintoma seria um timeout de 30s sobre um botao descrito
+    # como visivel e habilitado. Trata-se antes de submeter.
+    if await sc.sessao_bloqueada(page):
+        if not await sc.desbloquear_sessao(page):
+            raise MovimentacaoAbortada(
+                "sessao do SISDPU bloqueada (login em outra estacao) e nao "
+                "consegui desbloquear — feche o SISDPU no navegador e repita"
+            )
 
     _log.warning("SUBMETENDO movimentacao no PAJ %s", paj_texto)
     await page.click(f'[id="{FORM}:btnMovimentarTopo"]')

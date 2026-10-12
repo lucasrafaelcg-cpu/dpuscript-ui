@@ -37,6 +37,15 @@ _log = logging.getLogger(__name__)
 
 _EXT_TEXTO = (".txt", ".md")
 
+# Pistas de que a sessao do painel foi bloqueada por login em outra estacao.
+# A primeira vem da trava de `sisdpu_movimentacao`; a segunda e' o id do modal
+# do SIS, que aparece no log do Playwright quando o clique e' interceptado.
+_PISTAS_SESSAO = ("sessao do SISDPU bloqueada", "confirmDialogLogin")
+
+
+def _sessao_bloqueada(msg: str) -> bool:
+    return any(p in (msg or "") for p in _PISTAS_SESSAO)
+
 _estado: dict = {
     "rodando": False,
     "iniciado_em": "",
@@ -142,11 +151,22 @@ async def _enviar_um(item: dict, ensaio: bool = False) -> dict:
             confirmar=not ensaio,
         )
     except mv.MovimentacaoAbortada as e:
-        # Trava reprovou: NADA foi gravado. Erro do item, não do lote.
-        return {"ok": False, "tecnico": False, "erro": str(e)}
+        # Trava reprovou: NADA foi gravado. Erro do item, não do lote — salvo
+        # quando o motivo é a sessão bloqueada, que é estado GLOBAL: insistir
+        # nos próximos itens só repetiria a mesma falha.
+        msg = str(e)
+        return {"ok": False, "tecnico": _sessao_bloqueada(msg), "erro": msg}
     except Exception as e:
         # Estado incerto no SISDPU: o lote para.
-        return {"ok": False, "tecnico": True, "erro": f"{type(e).__name__}: {e}"}
+        msg = f"{type(e).__name__}: {e}"
+        if _sessao_bloqueada(msg):
+            msg = (
+                "o SISDPU bloqueou a sessão do painel porque houve login em "
+                "outra estação (seu navegador). O modal de desbloqueio cobre "
+                "a tela e nenhum clique chega. Saia do SISDPU no navegador e "
+                "mande de novo."
+            )
+        return {"ok": False, "tecnico": True, "erro": msg}
 
     if ensaio:
         return {"ok": True, "tecnico": False, "erro": "", "resultado": res,
