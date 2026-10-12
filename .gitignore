@@ -52,3 +52,8 @@ _versoes/
 # Saida de peca gerada pela skill de formatacao
 skills/*/saida/
 saida/
+
+# Memoria com a conta bancaria institucional (Fundo de Aparelhamento). Fica
+# so' na maquina: re-incluir e' um comando, tirar do historico do git depois
+# de publicado nao e'. Para versionar, remova esta linha e commite o arquivo.
+config-global/memory/honorarios-dpu-fundo-aparelhamento.md
