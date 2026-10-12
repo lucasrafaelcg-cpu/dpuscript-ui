@@ -55,6 +55,7 @@ _estado: dict = {
     "atual": "",
     "parado_por": "",
     "ensaio": False,
+    "parando": False,
     "resultados": [],
 }
 _tarefa: asyncio.Task | None = None
@@ -198,11 +199,23 @@ async def _rodar(ids: list[str] | None, ensaio: bool = False) -> None:
         "atual": "",
         "parado_por": "",
         "ensaio": ensaio,
+        "parando": False,
         "resultados": [],
     })
 
     try:
         for item in fila:
+            # Parada pedida pelo Defensor. A checagem e' ENTRE itens, nunca no
+            # meio de um: interromper uma movimentacao a meio caminho deixaria
+            # o SISDPU em estado que ninguem sabe ler depois — pode ter
+            # gravado, pode nao ter. Quem ja' comecou, termina.
+            if _estado["parando"]:
+                _estado["parado_por"] = (
+                    f"interrompido por voce apos {_estado['feitos']} de "
+                    f"{_estado['total']} — o que faltou segue na fila")
+                _log.warning("lote interrompido pelo Defensor")
+                break
+
             rotulo = f"{item['paj']} — {item['titulo']}"
             _estado["atual"] = rotulo
             ds.atualizar_status(item["id"], ds.STATUS_ENVIANDO)
@@ -242,8 +255,22 @@ async def _rodar(ids: list[str] | None, ensaio: bool = False) -> None:
             await asyncio.sleep(1)
     finally:
         _estado["rodando"] = False
+        _estado["parando"] = False
         _estado["atual"] = ""
         _estado["terminado_em"] = datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def parar() -> dict:
+    """Pede a parada do lote. O item em andamento termina antes.
+
+    Nao cancela o que ja' foi gravado: movimentacao no SISDPU nao volta
+    atras. O que ainda nao saiu continua marcado na fila.
+    """
+    if not _estado["rodando"]:
+        return {"ok": False, "erro": "nao ha envio em andamento"}
+    _estado["parando"] = True
+    return {"ok": True, "atual": _estado["atual"],
+            "feitos": _estado["feitos"], "total": _estado["total"]}
 
 
 def iniciar(ids: list[str] | None = None, ensaio: bool = False) -> dict:

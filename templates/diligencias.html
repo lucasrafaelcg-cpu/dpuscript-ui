@@ -39,6 +39,11 @@
               title="Percorre o mesmo caminho no SISDPU e para antes de submeter. Nada é gravado.">
         Ensaiar
       </button>
+      <button class="btn btn-sm btn-error" @click="parar()"
+              x-show="lote.rodando" :disabled="lote.parando"
+              title="Interrompe o envio. O item em andamento termina antes; o resto fica na fila.">
+        <span x-text="lote.parando ? 'Parando…' : 'Parar'"></span>
+      </button>
       <button class="btn btn-sm btn-primary" @click="anexar()"
               :disabled="lote.rodando || nMarcados === 0">
         <span x-show="lote.rodando" class="loading loading-spinner loading-xs"></span>
@@ -59,6 +64,11 @@
         <progress class="progress progress-primary flex-1"
                   :value="lote.feitos" :max="lote.total || 1"></progress>
         <span class="text-xs opacity-70" x-text="lote.atual"></span>
+      </div>
+
+      <div x-show="lote.parando" class="alert alert-warning mt-3 text-xs">
+        <span>Parando — o item em andamento termina antes. O que não saiu
+        continua marcado na fila.</span>
       </div>
 
       <div x-show="lote.parado_por" class="alert alert-error mt-3 text-xs">
@@ -194,7 +204,7 @@
 function diligenciasApp() {
     return {
         itens: [],
-        lote: {rodando: false, feitos: 0, total: 0, atual: '', parado_por: '', resultados: []},
+        lote: {rodando: false, parando: false, feitos: 0, total: 0, atual: '', parado_por: '', resultados: []},
         carregando: false,
         nPendentes: 0,
         nMarcados: 0,
@@ -291,6 +301,32 @@ function diligenciasApp() {
         /* GRAVA no SISDPU. O confirm lista PAJ por PAJ: movimentação gravada
            não volta atrás, e é aqui que se vê documento no PAJ errado antes
            de ele existir. */
+        /* Interrompe o lote. Não desfaz o que já foi gravado: movimentação
+           no SISDPU não volta atrás. */
+        async parar() {
+            if (this.lote.parando) return;
+            if (!confirm('Parar o envio?
+
+' +
+                         'O item que está sendo enviado agora termina antes — ' +
+                         'interromper no meio deixaria o SISDPU em estado incerto.
+' +
+                         'O que já foi gravado não é desfeito; o resto fica na fila.')) return;
+            try {
+                const r = await fetch('/api/diligencias/parar', {method: 'POST'});
+                const d = await r.json();
+                if (d.ok) {
+                    this.lote.parando = true;
+                    showToast('Parando após o item atual…', 'warning');
+                } else {
+                    showToast(d.erro || 'não havia envio em andamento', 'error');
+                }
+            } catch (e) {
+                showToast('Erro ao parar: ' + e.message, 'error');
+            }
+            this.carregar();
+        },
+
         async anexar(ensaio) {
             const marcados = this.itens.filter(
                 i => i.marcado && i.status !== 'anexado' && i.existe);

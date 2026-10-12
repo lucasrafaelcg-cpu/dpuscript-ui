@@ -107,6 +107,17 @@ async def anexar_marcados(corpo: dict = Body(default={})):
     return JSONResponse(res, status_code=200 if res.get("ok") else 409)
 
 
+@router.post("/api/diligencias/parar")
+async def parar_lote():
+    """Interrompe o envio em lote. O item em andamento termina antes.
+
+    Não desfaz nada: movimentação gravada no SISDPU não volta atrás. O que
+    ainda não saiu continua marcado na fila, para mandar depois.
+    """
+    res = lote.parar()
+    return JSONResponse(res, status_code=200 if res.get("ok") else 409)
+
+
 @router.get("/api/diligencias/lote")
 async def estado_do_lote():
     return lote.estado()
