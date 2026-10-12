@@ -305,12 +305,9 @@ function diligenciasApp() {
            no SISDPU não volta atrás. */
         async parar() {
             if (this.lote.parando) return;
-            if (!confirm('Parar o envio?
-
-' +
+            if (!confirm('Parar o envio?\n\n' +
                          'O item que está sendo enviado agora termina antes — ' +
-                         'interromper no meio deixaria o SISDPU em estado incerto.
-' +
+                         'interromper no meio deixaria o SISDPU em estado incerto.\n' +
                          'O que já foi gravado não é desfeito; o resto fica na fila.')) return;
             try {
                 const r = await fetch('/api/diligencias/parar', {method: 'POST'});
