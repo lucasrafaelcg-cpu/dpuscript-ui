@@ -1,0 +1,1215 @@
+# Skill: Formatação de Peças Jurídicas em .docx
+
+## Objetivo
+Converter o texto final da peça jurídica em arquivo .docx formatado conforme o modelo institucional da DPU, com cabeçalho, rodapé, barra lateral e identidade visual completa.
+
+## Quando Usar
+- Ao final do pipeline de qualquer Skill de recurso (ED, agravo interno, embargos de divergência, etc.)
+- Quando o Defensor pedir para formatar um texto em .docx
+- Para despachos de arquivamento, se solicitado
+
+## ⚠️ IMPORTANTE: Formato do Texto de Entrada
+
+O script de formatação **EXIGE** que o texto de entrada (.txt) use marcadores específicos:
+
+### Marcadores Obrigatórios
+
+```
+## Título Principal     → Título de seção em negrito (tamanho 12, como o corpo)
+### Subtítulo           → Subtítulo em negrito (mesmo tamanho do corpo)
+> Citação longa         → Recuo de 4cm (mesma fonte/tamanho do corpo)
+**texto em negrito**    → Negrito inline (funciona em parágrafos e citações; máx. 2-3 por tópico)
+[Fxxx]                  → Nota de rodapé de fonte verificada (com --banco)
+Texto normal            → Parágrafo com recuo de primeira linha
+
+(linha em branco)       → Quebra de parágrafo
+```
+
+### ❌ NÃO USE estes Markdown
+
+**INCORRETO:**
+```
+*texto em itálico*      → NÃO FUNCIONA
+# Título (um só #)      → NÃO é reconhecido (use ## ou ###)
+- bullets / listas      → NÃO usar no corpo da peça (prosa contínua)
+TÍTULO EM MAIÚSCULAS    → sem ## não terá formatação especial
+```
+
+**CORRETO:**
+```
+## TÍTULO EM MAIÚSCULAS → Heading 1 formatado
+
+Parágrafo normal com texto corrido. Use quebras de linha duplas
+para separar parágrafos.
+
+Outro parágrafo aqui.
+```
+
+### 🔧 Encoding Obrigatório: UTF-8
+
+**SEMPRE** salve arquivos .txt com encoding UTF-8:
+
+```python
+# ✅ CORRETO
+with open('peca.txt', 'w', encoding='utf-8') as f:
+    f.write(texto)
+
+# ❌ INCORRETO (causa corrupção de acentos)
+with open('peca.txt', 'w') as f:  # Sem encoding explícito
+    f.write(texto)
+```
+
+### Exemplo Completo de Texto Formatado
+
+```
+## I – INTRODUÇÃO
+
+Este é o primeiro parágrafo após o título. Ele terá recuo de primeira
+linha e espaçamento adequado.
+
+Este é o segundo parágrafo. Note a linha em branco acima para separar
+os parágrafos.
+
+### Subtópico Importante
+
+Texto do subtópico aqui.
+
+> Esta é uma citação longa de jurisprudência ou doutrina. Será
+> formatada com recuo de 4cm.
+
+Continuação do texto normal após a citação.
+
+## II – CONCLUSÃO
+
+Texto da conclusão.
+```
+
+## Cabeçalho da Peça: Endereçamento + Qualificação Processual
+
+Quando a peça se dirige a um juízo (petição, manifestação, recurso — não se
+aplica a despacho interno/ofício), **escreva os dois primeiros parágrafos do
+texto exatamente nesta forma**, pois o script detecta e formata esse bloco
+automaticamente:
+
+1. **1º parágrafo — Endereçamento.** Uma linha (ou poucas linhas) em caixa
+   alta, com o vocativo formal. Ex.: `EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A)
+   JUIZ(A) FEDERAL DA VARA FEDERAL COM COMPETÊNCIA CÍVEL DA SUBSEÇÃO
+   JUDICIÁRIA DE CAMPINA GRANDE - SEÇÃO JUDICIÁRIA DA PARAÍBA`. O script
+   renderiza em **negrito e alinhamento justificado**.
+2. **(linha em branco)**
+3. **2º parágrafo — Qualificação.** Uma linha para o número do processo e
+   uma linha para cada parte, sem negrito. Ex.:
+   ```
+   Processo nº 0803623-58.2024.4.05.8201 — Execução de Título Extrajudicial
+   Executado: WELLINGTON RODRIGUES MOREIRA (citado por edital)
+   ```
+4. **(linha em branco)**
+5. **A partir daqui, a apresentação da peça** (ex.: "A DEFENSORIA PÚBLICA DA
+   UNIÃO, no exercício da função de CURADORA ESPECIAL do executado..., vem,
+   respeitosamente, perante Vossa Excelência..."). O script insere
+   automaticamente um espaçamento de 6 linhas entre a qualificação e este
+   parágrafo — **não insira você mesmo linhas em branco extras aqui**.
+
+**Não** repita o número do processo/partes dentro da apresentação — eles já
+constam da qualificação acima.
+
+### Nomeação da Peça — Petições Intercorrentes
+
+Petições intercorrentes (manifestações no curso do processo: réplica,
+impugnação, cumprimento de determinação judicial, resposta a intimação
+etc.) **não devem ser nomeadas** com uma linha isolada como `MANIFESTAÇÃO`,
+`PETIÇÃO INTERCORRENTE` ou similar entre a apresentação e o corpo da peça.
+
+Em vez disso, encerre o parágrafo de apresentação com uma fórmula neutra do
+tipo **"vem, respeitosamente, informar/requerer o que segue:"** (adapte ao
+caso — "informar" quando for só comunicar algo ao juízo, "requerer" quando
+houver pedido), e siga direto para os tópicos (`##`) do corpo. Ex.:
+
+```
+A DEFENSORIA PÚBLICA DA UNIÃO, no exercício da função de CURADORA ESPECIAL
+do executado WELLINGTON RODRIGUES MOREIRA, citado por edital e revel, nos
+autos da execução em epígrafe, vem, respeitosamente, perante Vossa
+Excelência, em atenção à intimação para manifestação sobre a
+indisponibilidade de ativos financeiros formalizada via SISBAJUD (art. 854,
+§3º, do CPC), informar/requerer o que segue:
+
+## I – DOS FATOS
+...
+```
+
+Essa regra vale só para petições intercorrentes. Peças com nome técnico
+próprio e consagrado (agravo, embargos de declaração, apelação, contestação,
+petição inicial etc.) continuam identificadas normalmente pelo contexto —
+não pela inserção de uma linha-título no corpo do documento.
+
+## Padrão visual do texto (fixo)
+
+Todo o texto da peça sai em **Times New Roman, tamanho 12, cor preta** — corpo,
+endereçamento, qualificação, títulos de seção (`##` e `###`), citações longas,
+assinatura e seção de citações. Não há tamanho diferenciado para título: **12 em
+tudo**, inclusive nos títulos.
+
+Isso é aplicado pelo script, não por você: escreva o `.txt` com os marcadores
+normais e a formatação é resolvida na geração. Os valores ficam centralizados no
+topo de `formatar_peca.py` (`FONTE_PECA`, `TAM_PECA`, `COR_PECA`) — para mudar o
+padrão, altere ali, e não espalhado pelo código.
+
+Os títulos de seção continuam em **negrito** (é o que os distingue, já que o
+tamanho é igual ao do corpo).
+
+## Nomes das Partes: Negrito + Caixa Alta
+
+Toda vez que o nome de uma parte (autor, réu, exequente, executado,
+impetrante, requerente, requerido, assistido etc.) for citado no CORPO da
+petição, ele deve aparecer em **negrito e caixa alta**. Ex.: "...do executado
+**WELLINGTON RODRIGUES MOREIRA**, citado por edital...".
+
+Na prática, **você não precisa se preocupar em marcar isso manualmente**: o
+script detecta os nomes na qualificação (2º parágrafo — ver seção acima) e
+aplica negrito + caixa alta automaticamente em toda ocorrência desse nome, em
+qualquer capitalização que você tenha usado — no corpo **e também na própria
+linha de qualificação** (o rótulo "Requerente:" fica normal, o nome sai em
+negrito e caixa alta). Ainda assim, prefira
+escrever o nome completo da parte (não apelidos/abreviações) para que a
+detecção funcione — e, se citar alguma parte que NÃO constar da qualificação
+(ex.: um terceiro mencionado só no corpo), marque-a você mesmo com
+`**NOME EM CAIXA ALTA**`.
+
+Essa regra é exceção à orientação geral de negrito com parcimônia (máx. 2-3
+por tópico) — nomes de partes são sempre em negrito, quantas vezes aparecerem.
+
+## Agravo de Instrumento — DUAS folhas + peça complementar
+
+O agravo de instrumento tem estrutura própria, com **dois endereçamentos
+distintos em páginas separadas**. Use o marcador `[NOVA PAGINA]` (linha
+sozinha) para separá-las — o script insere uma quebra de página real e detecta
+o cabeçalho da segunda folha automaticamente.
+
+### Folha 1 — interposição (ao Desembargador Relator)
+
+```
+AO EXMO. DESEMBARGADOR RELATOR DO EGRÉGIO TRIBUNAL REGIONAL FEDERAL DA 5ª REGIÃO
+
+Processo Originário nº 0000000-00.0000.4.05.0000
+PAJ nº 0000/056-00000
+
+NOME DO AGRAVANTE, qualificado nos autos do processo originário, por
+intermédio da DEFENSORIA PÚBLICA DA UNIÃO, presentada pelo Defensor Público
+Federal que ao final subscreve, no uso das prerrogativas previstas na LC
+80/94, vem interpor AGRAVO DE INSTRUMENTO em face de decisão proferida pelo
+Juízo Federal da _ª Vara da Subseção Judiciária de _____ (id. _____).
+
+Salienta-se que o CPC, em seu artigo 1.017, §5º, permite a interposição de
+agravo de instrumento em processos virtuais com a dispensa da juntada da
+documentação obrigatória referida nos incisos I e II daquele mesmo artigo,
+motivo pelo qual a presente petição seguirá desacompanhada dos referidos
+documentos, uma vez que notoriamente disponíveis ao acesso do Tribunal.
+
+[NOVA PAGINA]
+```
+
+### Folha 2 — razões (endereçada à Corte)
+
+```
+EGRÉGIO TRIBUNAL REGIONAL FEDERAL DA 5ª REGIÃO,
+EMINENTES DESEMBARGADORES FEDERAIS,
+DOUTO RELATOR.
+
+Autos na origem: 0000000-00.0000.4.05.0000
+Agravante: Nome do agravante
+Agravado: Nome do agravado
+
+## RAZÕES DO AGRAVO
+...
+```
+
+Seções típicas da folha 2, nesta ordem: `RAZÕES DO AGRAVO` · `PRERROGATIVAS DA
+DEFENSORIA PÚBLICA DA UNIÃO` · `TEMPESTIVIDADE DO RECURSO` · `CABIMENTO DO
+AGRAVO DE INSTRUMENTO` · `SÍNTESE PROCESSUAL` · `FUNDAMENTOS` · (tese
+específica do caso) · `PEDIDOS`.
+
+Nos `PEDIDOS`, lembrar de: conhecimento do recurso independentemente da
+juntada de documentos (art. 1.017, §5º); intimação do recorrido para
+contrarrazões; o mérito; observância das prerrogativas da DPU, com intimações
+remetidas à **DPU/Recife**, onde atua o Defensor com competência perante o
+TRF5. Havendo honorários, pedir a condenação do recorrido ao pagamento em favor
+da DPU, com reversão ao Fundo de Aparelhamento (art. 4º, XXI, da LC 80/94) —
+**sem** transcrever os dados bancários (eles só entram no cumprimento de
+sentença; ver a seção "Honorários em favor da DPU" abaixo).
+
+### Peça complementar OBRIGATÓRIA — petição ao juízo de origem
+
+**Todo agravo de instrumento gera DUAS peças.** Além do agravo, produza sempre
+uma petição curta dirigida ao **juízo de origem**, informando a interposição e
+pugnando pela retratação (art. 1.018, §1º, do CPC). Salve em arquivo separado
+(ex.: `peticao_informa_agravo.txt`). Modelo:
+
+```
+AO JUÍZO FEDERAL DA _ª VARA DA SUBSEÇÃO JUDICIÁRIA DE _____
+
+Processo nº 0000000-00.0000.4.05.0000
+PAJ nº 0000/056-00000
+
+A parte autora, por intermédio da DEFENSORIA PÚBLICA DA UNIÃO, vem,
+respeitosamente, à presença de Vossa Excelência, informar que interpôs agravo
+de instrumento contra a decisão proferida por esse Juízo que _____.
+
+O recurso foi cadastrado sob o nº _____.
+
+Na oportunidade, pugna-se pela retratação do ato.
+
+Nesses termos, requer deferimento.
+```
+
+Se o número do agravo ainda não existir (peça produzida antes do protocolo),
+deixe o campo indicado como pendente em vez de inventar número.
+
+## Honorários em favor da DPU — pedido de pagamento e dados da conta
+
+### Onde os dados bancários entram (e onde NÃO entram)
+
+Os dados da conta do Fundo de Aparelhamento só são informados nas **petições de
+CUMPRIMENTO DE SENTENÇA** — ou seja, quando já se está executando o crédito.
+
+Nas peças que apenas **pedem a condenação** (agravo, apelação, contestação,
+embargos, manifestações em geral), requer-se a condenação em honorários em favor
+da DPU, com reversão ao Fundo de Aparelhamento (art. 4º, XXI, da LC 80/94),
+**sem transcrever a conta**. Ali o crédito ainda não existe; informar dados
+bancários é prematuro e polui a peça.
+
+### O que o pedido de cumprimento precisa conter
+
+Sempre os três elementos, nesta ordem:
+
+**1. Pagamento conforme o rito processual.** Identifique e NOMEIE o rito
+aplicável, em vez de pedir genericamente "RPV ou precatório":
+
+- **RPV (Requisição de Pequeno Valor)** — quando o crédito está dentro do limite
+  legal do ente devedor;
+- **Precatório** — quando excede esse limite;
+- **Depósito judicial / intimação para pagamento espontâneo** — quando o
+  executado é particular (art. 523 do CPC), não se aplicando RPV nem precatório.
+
+Diga qual se aplica e por quê (valor do crédito frente ao limite). Se o valor
+ainda não estiver definido, explicite a condição em vez de escolher no escuro.
+
+**2. Transferência expressa para a conta do Fundo.** Requeira que, **após o
+depósito em conta judicial**, os valores sejam TRANSFERIDOS para a conta abaixo.
+Esse pedido é indispensável e precisa ser expresso: o depósito judicial, por si,
+não faz o crédito chegar ao Fundo de Aparelhamento.
+
+**3. Os dados da conta**, transcritos exatamente assim:
+
+```
+DADOS PARA DEPÓSITO
+
+Banco: Caixa Econômica Federal
+Operação: 1292
+Agência nº 0002
+Conta Corrente nº 576952567-0
+CNPJ nº 58.053.223/0001-05
+```
+
+Não altere, abrevie nem "corrija" esses dados — transcreva literalmente.
+
+## Assets Disponíveis
+
+Os seguintes arquivos estão em `skills/formatacao-docx/assets/`:
+
+| Arquivo | Descrição | Uso |
+|---------|-----------|-----|
+| `image2.jpg` | Logo DPU horizontal com degradê (colorido) | Cabeçalho (todas as páginas) |
+| `image1.png` | Ícone/marca d'água DPU (contorno fino) | Rodapé das páginas internas (marca d'água) |
+| `fonts/QuattrocentoSans-*.ttf` | Fontes embutidas pelo template (legado) | NÃO usadas no texto da peça — o corpo é Times New Roman 12 |
+
+## Especificações de Formatação (extraídas do modelo)
+
+> **Escopo.** O que segue descreve a GEOMETRIA do template (margens, barra
+> lateral, marca d'água, rodapé). Fonte, tamanho e cor do TEXTO da peça
+> seguem a seção "Padrão visual do texto (fixo)" acima — Times New Roman 12
+> preto. O rodapé de paginação e a barra lateral são cromo do template e
+> mantêm os tamanhos próprios.
+
+### Página
+- Papel: A4 (largura 11905 DXA / 21cm, altura 16837 DXA / 29,7cm)
+- Orientação: retrato
+- Margens:
+  - Superior: 1134 DXA (2cm)
+  - Inferior: 1134 DXA (2cm)
+  - Esquerda: 1134 DXA (2cm)
+  - Direita: 3969 DXA (7cm) — margem larga para acomodar a barra lateral
+- Cabeçalho: 567 DXA (1cm) de distância do topo
+- Rodapé: 567 DXA (1cm) de distância da base
+- Primeira página diferente: SIM (`titlePg: true`)
+
+### Barra Lateral Direita
+Elemento visual definidor do modelo. É um retângulo posicionado à direita da página, que se estende por toda a altura.
+
+**Na primeira página (header2 / footer2):**
+- Posição horizontal: 5403533 EMU a partir da borda da página (~85mm da esquerda)
+- Largura: ~1925320 EMU (~30,3mm)
+- Altura: 10197525 EMU (altura total da página)
+- Preenchimento: cor `#D5DBE5` com opacidade ~35% (alpha 34901/100000)
+- Contém caixa de texto com:
+  - **"Pedido"** — Quattrocento Sans, negrito, 14pt, cor `#323E4F`
+  - Texto resumo do pedido — Palatino Linotype, itálico, 11pt, cor `#323E4F`
+  - **"Sumário"** — Quattrocento Sans, negrito, 14pt, cor `#323E4F`
+  - Itens do sumário com links
+
+**Nas páginas internas (header1 / footer1):**
+- Retângulo sólido cor `#323F4F` (azul-marinho escuro)
+- Posição horizontal: ~5048885 EMU
+- Largura: ~1825400 EMU (~28,7mm)
+- Altura: ~10786059 EMU (toda a página)
+- Sem conteúdo textual (apenas bloco de cor)
+
+### Fonte Principal
+- **Quattrocento Sans** (fonte embutida no documento, disponível em `assets/fonts/`)
+- Cor padrão do texto: `#595959` (cinza escuro)
+- Tamanho padrão: 12pt (24 half-points)
+
+### Estilos de Parágrafo (defaults do documento)
+- Espaçamento entre linhas: 1,15 (276/240 = lineRule auto, line 276)
+- Espaçamento antes: 6pt (120 DXA ÷ 20)
+- Espaçamento depois: 6pt (120 DXA ÷ 20)
+- Recuo de primeira linha: 1418 DXA (~2,5cm)
+- Alinhamento: justificado
+
+### Estilo "Title" (Endereçamento e Título da Peça)
+- Baseado em Normal
+- Espaçamento antes e depois: 720 DXA (36pt) — ajustável conforme uso
+- Sem recuo de primeira linha
+- Negrito
+- Cor: `#000000` (preto)
+
+### Heading 1 (Tópicos principais — I, II, III...)
+- Negrito
+- Cor: `#323E4F` (azul-marinho escuro, mesma cor da barra lateral)
+- Tamanho: 18pt (36 half-points)
+- Borda inferior: linha simples, cor `#BF8F00` (dourado), 0,5pt
+- Espaçamento antes: 18pt (360 DXA), depois: 12pt (240 DXA)
+- Espaçamento entre linhas: simples (240)
+- Sem recuo de primeira linha
+- Tab stop em 426 DXA
+
+### Heading 3 (Subtópicos)
+- Negrito
+- Mesmo tamanho do corpo (12pt)
+
+### Citações Longas (mais de 3 linhas)
+- Recuo de 4cm à esquerda (2268 DXA)
+- Mesma fonte e tamanho do corpo (Times New Roman 12)
+- Espaçamento simples entre linhas
+- Sem aspas (o recuo já indica citação)
+
+### Citações Curtas (até 3 linhas)
+- Dentro do parágrafo, entre aspas
+- Mesma formatação do corpo
+
+### Cabeçalho
+**Todas as páginas:**
+- Logo DPU (`image2.jpg`) posicionado no canto superior esquerdo
+- Dimensões do logo: 1209675 EMU × 539750 EMU (~95mm × 42,5mm)
+- Posição: offset horizontal 33656 EMU, vertical -232409 EMU (ligeiramente acima da margem)
+
+**Primeira página (header2):**
+- Mesma logo
+- Barra lateral com conteúdo (Pedido + Sumário)
+
+### Rodapé
+**Páginas internas (footer1 — default):**
+- Paginação: campo PAGE + " / " + campo NUMPAGES
+- Fonte: Quattrocento Sans, 10pt, cor `#595959`
+- Alinhamento: à esquerda
+- Marca d'água: `image1.png` (ícone DPU), posicionada atrás do texto (behindDoc=true)
+  - Dimensões: 2265903 EMU × 2265903 EMU (~178mm quadrado)
+  - Posição: offset horizontal 3110103 EMU, vertical -1172209 EMU (canto inferior direito, parcialmente sob a barra lateral)
+
+**Primeira página (footer2):**
+- Texto do PAJ: "PAJ XXXX/XXX-XXXXX/SIGLA"
+- Fonte: Quattrocento Sans, 8pt (16 half-points), cor `#595959`
+- Barra lateral sólida `#323F4F` no rodapé da primeira página
+
+### Numeração de Páginas
+- Formato: "X / Y" (página atual / total de páginas)
+- Alinhada à esquerda no rodapé
+- Começar na primeira página
+
+## Implementação Técnica
+
+**IMPORTANTE: Usar o script `formatar_peca.py` para todas as formatações.**
+
+O script está em `skills/formatacao-docx/formatar_peca.py` e fornece funções prontas para converter texto estruturado em .docx + PDF formatados.
+
+### Instalação de Dependências
+
+```bash
+pip install python-docx lxml docx2pdf
+```
+
+### Como Usar
+
+**1. Preparar o texto da peça com marcadores de formatação:**
+
+```python
+# ✅ EXEMPLO CORRETO: Texto com marcadores
+texto_completo = """## I – INTRODUÇÃO
+
+Este é o primeiro parágrafo com recuo de primeira linha.
+
+Este é o segundo parágrafo. Note a linha em branco separando os parágrafos.
+
+### Subtópico Importante
+
+Texto do subtópico.
+
+> Esta é uma citação longa que será formatada com recuo de 4cm
+> e fonte reduzida. Use o prefixo '>' no início de cada linha.
+
+Continuação do texto normal.
+
+## II – CONCLUSÃO
+
+Texto final.
+"""
+
+# ✅ CORRETO: Salvar com encoding UTF-8 explícito
+with open('saida/peca.txt', 'w', encoding='utf-8') as f:
+    f.write(texto_completo)
+```
+
+**⚠️ ERROS COMUNS A EVITAR:**
+
+```python
+# ❌ INCORRETO: Sem marcadores de formatação
+texto_incorreto = """INTRODUÇÃO
+
+Texto sem marcadores. Não será formatado corretamente.
+Títulos precisam começar com ## ou ###.
+"""
+
+# ❌ INCORRETO: Usando Markdown tradicional
+texto_incorreto = """**Título em Negrito**  # NÃO FUNCIONA
+
+Texto com *itálico* não funciona.  # NÃO FUNCIONA
+"""
+
+# ❌ INCORRETO: Sem encoding UTF-8
+with open('peca.txt', 'w') as f:  # Vai corromper acentos!
+    f.write(texto)
+```
+
+**2. Chamar o script de formatação:**
+
+```python
+import sys
+sys.path.append(r'D:\DPU\dpu-workspace\skills\formatacao-docx')
+from formatar_peca import criar_documento, salvar_documento
+
+# Criar documento
+doc = criar_documento(
+    conteudo_txt=texto_completo,
+    enderecamento="EXCELENTÍSSIMO SENHOR...",
+    titulo_peca="AGRAVO INTERNO",
+    subtitulo="REsp nº 1.234.567/SP",  # opcional
+    numero_paj="PAJ 2024/040-12345/BVBA",  # opcional
+    numero_processo="REsp 1234567",  # usado se não houver PAJ
+    texto_pedido="Resumo do pedido para a barra lateral",  # opcional
+    itens_sumario=["I – Tópico 1", "II – Tópico 2"]  # opcional
+)
+
+# Salvar .docx e converter para PDF automaticamente
+caminho_docx, caminho_pdf = salvar_documento(
+    doc,
+    nome_arquivo="agravo_interno_1234567.docx",
+    pasta_saida=r"D:\DPU\dpu-workspace\saida"
+)
+
+print(f"✓ DOCX: {caminho_docx}")
+print(f"✓ PDF: {caminho_pdf}")
+```
+
+### Marcadores de Formatação no Texto
+
+Use estes marcadores no texto para controlar a formatação:
+
+- `## Título Principal` → título de seção (negrito, tamanho 12)
+- `### Subtítulo` → subtítulo (negrito, tamanho 12)
+- `> Citação longa` → recuo 4cm (fonte e tamanho do corpo)
+- Texto normal → Parágrafo com recuo de primeira linha
+
+Exemplo:
+
+```
+## I – Introdução
+
+Este é um parágrafo normal com recuo de primeira linha.
+
+### Subtópico importante
+
+Outro parágrafo normal.
+
+> Citação longa de acórdão ou doutrina, formatada com recuo de 4cm.
+
+## II – Conclusão
+
+Texto final.
+```
+
+### Script Base de Geração
+
+```python
+from docx import Document
+from docx.shared import Pt, Cm, Emu, RGBColor, Twips
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn, nsdecls
+from docx.oxml import parse_xml
+import os
+
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+LOGO_PATH = os.path.join(ASSETS_DIR, "image2.jpg")
+WATERMARK_PATH = os.path.join(ASSETS_DIR, "image1.png")
+FONT_DIR = os.path.join(ASSETS_DIR, "fonts")
+
+def criar_documento(conteudo_paragrafos, titulo_enderecamento, titulo_peca,
+                    numero_paj, numero_processo, resumo_pedido=None, sumario=None):
+    """
+    Cria documento .docx no modelo institucional da DPU.
+
+    Args:
+        conteudo_paragrafos: lista de dicts com keys:
+            - 'texto': str ou lista de dicts {'texto': str, 'negrito': bool, 'italico': bool}
+            - 'tipo': 'normal' | 'titulo' | 'heading1' | 'heading3' | 'citacao_longa' | 'citacao_curta'
+        titulo_enderecamento: str — "A Sua Excelência o(a) Senhor(a)..."
+        titulo_peca: str — ex: "Recurso Extraordinário com Agravo nº 1.446.634"
+        numero_paj: str — "PAJ 2023/040-06077/BVBA"
+        numero_processo: str — para nome do arquivo
+        resumo_pedido: str (opcional) — texto do resumo para a barra lateral
+        sumario: list de str (opcional) — itens do sumário para a barra lateral
+    """
+    doc = Document()
+
+    # ============================================================
+    # 1. CONFIGURAR ESTILOS PADRÃO
+    # ============================================================
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Quattrocento Sans'
+    font.size = Pt(12)
+    font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+
+    pf = style.paragraph_format
+    pf.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    pf.space_before = Pt(6)
+    pf.space_after = Pt(6)
+    pf.line_spacing = 1.15
+    pf.first_line_indent = Cm(2.5)
+
+    # ============================================================
+    # 2. CONFIGURAR PÁGINA
+    # ============================================================
+    section = doc.sections[0]
+    section.page_width = Emu(7560310)    # A4 width
+    section.page_height = Emu(10692130)  # A4 height
+    section.top_margin = Cm(2)
+    section.bottom_margin = Cm(2)
+    section.left_margin = Cm(2)
+    section.right_margin = Cm(7)  # Margem larga para barra lateral
+    section.header_distance = Cm(1)
+    section.footer_distance = Cm(1)
+    section.different_first_page_header_footer = True
+
+    # ============================================================
+    # 3. CABEÇALHO (todas as páginas) — Logo DPU
+    # ============================================================
+    # Cabeçalho padrão (páginas 2+)
+    header = section.header
+    header.is_linked_to_previous = False
+    hp = header.paragraphs[0]
+    hp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run = hp.add_run()
+    run.add_picture(LOGO_PATH, width=Emu(1209675), height=Emu(539750))
+
+    # Cabeçalho da primeira página
+    first_header = section.first_page_header
+    first_header.is_linked_to_previous = False
+    fhp = first_header.paragraphs[0]
+    fhp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    frun = fhp.add_run()
+    frun.add_picture(LOGO_PATH, width=Emu(1209675), height=Emu(539750))
+
+    # ============================================================
+    # 4. RODAPÉ
+    # ============================================================
+    # Rodapé padrão (páginas 2+): paginação X / Y
+    footer = section.footer
+    footer.is_linked_to_previous = False
+    fp = footer.paragraphs[0]
+    fp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    fp.style.font.size = Pt(10)
+    fp.style.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+
+    # Campo PAGE
+    run_page = fp.add_run()
+    fldChar1 = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="begin"/>')
+    run_page._r.append(fldChar1)
+    run_instr = fp.add_run()
+    instrText = parse_xml(f'<w:instrText {nsdecls("w")} xml:space="preserve"> PAGE </w:instrText>')
+    run_instr._r.append(instrText)
+    run_sep = fp.add_run()
+    fldChar2 = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="separate"/>')
+    run_sep._r.append(fldChar2)
+    run_end = fp.add_run()
+    fldChar3 = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="end"/>')
+    run_end._r.append(fldChar3)
+
+    run_div = fp.add_run(" / ")
+    run_div.font.size = Pt(10)
+    run_div.font.name = 'Quattrocento Sans'
+    run_div.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+
+    # Campo NUMPAGES
+    run_np = fp.add_run()
+    fldChar4 = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="begin"/>')
+    run_np._r.append(fldChar4)
+    run_instr2 = fp.add_run()
+    instrText2 = parse_xml(f'<w:instrText {nsdecls("w")} xml:space="preserve"> NUMPAGES </w:instrText>')
+    run_instr2._r.append(instrText2)
+    run_sep2 = fp.add_run()
+    fldChar5 = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="separate"/>')
+    run_sep2._r.append(fldChar5)
+    run_end2 = fp.add_run()
+    fldChar6 = parse_xml(f'<w:fldChar {nsdecls("w")} w:fldCharType="end"/>')
+    run_end2._r.append(fldChar6)
+
+    # Rodapé da primeira página: número do PAJ
+    first_footer = section.first_page_footer
+    first_footer.is_linked_to_previous = False
+    ffp = first_footer.paragraphs[0]
+    ffp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run_paj = ffp.add_run(numero_paj)
+    run_paj.font.size = Pt(8)
+    run_paj.font.name = 'Quattrocento Sans'
+    run_paj.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+
+    # ============================================================
+    # 5. INSERIR BARRA LATERAL VIA XML
+    # ============================================================
+    # A barra lateral é inserida como shape ancorado no cabeçalho.
+    # Como python-docx não tem suporte nativo para shapes ancorados,
+    # a barra lateral deve ser injetada via manipulação direta do XML
+    # do cabeçalho após a geração do documento.
+    #
+    # Alternativa simplificada: usar o modelo .docx original como
+    # template e apenas preencher o conteúdo. Ver seção "Abordagem
+    # com Template" abaixo.
+
+    # ============================================================
+    # 6. CONTEÚDO DO DOCUMENTO
+    # ============================================================
+
+    # Endereçamento (estilo Title)
+    p_end = doc.add_paragraph()
+    p_end.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p_end.paragraph_format.space_before = Pt(0)
+    p_end.paragraph_format.space_after = Pt(30)
+    p_end.paragraph_format.first_line_indent = Pt(0)
+    run = p_end.add_run(titulo_enderecamento)
+    run.bold = True
+    run.font.name = 'Quattrocento Sans'
+    run.font.size = Pt(12)
+    run.font.color.rgb = RGBColor(0, 0, 0)
+
+    # Título da peça (estilo Title)
+    p_tit = doc.add_paragraph()
+    p_tit.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p_tit.paragraph_format.space_before = Pt(0)
+    p_tit.paragraph_format.space_after = Pt(30)
+    p_tit.paragraph_format.first_line_indent = Pt(0)
+    run = p_tit.add_run(titulo_peca)
+    run.bold = True
+    run.font.name = 'Quattrocento Sans'
+    run.font.size = Pt(12)
+    run.font.color.rgb = RGBColor(0, 0, 0)
+
+    # Parágrafos do conteúdo
+    for item in conteudo_paragrafos:
+        tipo = item.get('tipo', 'normal')
+        texto = item.get('texto', '')
+
+        if tipo == 'heading1':
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(18)
+            p.paragraph_format.space_after = Pt(12)
+            p.paragraph_format.line_spacing = 1.0
+            p.paragraph_format.first_line_indent = Pt(0)
+            # Borda inferior dourada
+            pPr = p._p.get_or_add_pPr()
+            pBdr = parse_xml(
+                f'<w:pBdr {nsdecls("w")}>'
+                '  <w:bottom w:val="single" w:sz="4" w:space="1" w:color="BF8F00"/>'
+                '</w:pBdr>'
+            )
+            pPr.append(pBdr)
+            run = p.add_run(texto)
+            run.bold = True
+            run.font.name = 'Quattrocento Sans'
+            run.font.size = Pt(18)
+            run.font.color.rgb = RGBColor(0x32, 0x3E, 0x4F)
+
+        elif tipo == 'heading3':
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(12)
+            p.paragraph_format.space_after = Pt(6)
+            run = p.add_run(texto)
+            run.bold = True
+            run.font.name = 'Quattrocento Sans'
+            run.font.size = Pt(12)
+            run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+
+        elif tipo == 'citacao_longa':
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            p.paragraph_format.left_indent = Cm(4)
+            p.paragraph_format.first_line_indent = Pt(0)
+            p.paragraph_format.line_spacing = 1.0
+            p.paragraph_format.space_after = Pt(6)
+            if isinstance(texto, str):
+                run = p.add_run(texto)
+                run.font.name = 'Quattrocento Sans'
+                run.font.size = Pt(10)
+                run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+            else:
+                for segmento in texto:
+                    run = p.add_run(segmento.get('texto', ''))
+                    run.font.name = 'Quattrocento Sans'
+                    run.font.size = Pt(10)
+                    run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+                    if segmento.get('negrito'):
+                        run.bold = True
+                    if segmento.get('italico'):
+                        run.italic = True
+
+        elif tipo == 'titulo':
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.space_before = Pt(36)
+            p.paragraph_format.space_after = Pt(36)
+            p.paragraph_format.first_line_indent = Pt(0)
+            run = p.add_run(texto)
+            run.bold = True
+            run.font.name = 'Quattrocento Sans'
+            run.font.size = Pt(12)
+            run.font.color.rgb = RGBColor(0, 0, 0)
+
+        else:  # normal
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            p.paragraph_format.space_before = Pt(6)
+            p.paragraph_format.space_after = Pt(6)
+            p.paragraph_format.line_spacing = 1.15
+            p.paragraph_format.first_line_indent = Cm(2.5)
+
+            if isinstance(texto, str):
+                run = p.add_run(texto)
+                run.font.name = 'Quattrocento Sans'
+                run.font.size = Pt(12)
+                run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+            else:
+                for segmento in texto:
+                    run = p.add_run(segmento.get('texto', ''))
+                    run.font.name = 'Quattrocento Sans'
+                    run.font.size = Pt(12)
+                    run.font.color.rgb = RGBColor(0x59, 0x59, 0x59)
+                    if segmento.get('negrito'):
+                        run.bold = True
+                    if segmento.get('italico'):
+                        run.italic = True
+
+    return doc
+
+
+def salvar_documento(doc, nome_arquivo, pasta_saida="saida"):
+    """Salva o documento na pasta de saída."""
+    os.makedirs(pasta_saida, exist_ok=True)
+    caminho = os.path.join(pasta_saida, nome_arquivo)
+    doc.save(caminho)
+    return caminho
+```
+
+### Abordagem com Template (Recomendada)
+
+Para preservar fielmente a barra lateral, marca d'água e todos os elementos visuais complexos do modelo, a abordagem mais robusta é usar o próprio documento modelo como template:
+
+1. O documento modelo original está disponível em `D:\DPU\MODELO ARE 1446634 - agravo interno hanseníase - PAJ 2023.040.06077.docx`
+2. Copiar o modelo, limpar o conteúdo do corpo (mantendo cabeçalhos, rodapés, seções)
+3. **OBRIGATÓRIO: Atualizar o conteúdo da barra lateral** (ver seção abaixo)
+4. Preencher com o novo conteúdo
+
+```python
+import copy
+from docx import Document
+
+def criar_documento_via_template(template_path, conteudo_paragrafos,
+                                  titulo_enderecamento, titulo_peca,
+                                  numero_paj):
+    """
+    Usa o modelo original como template, preservando toda a
+    identidade visual (barra lateral, logo, marca d'água).
+    """
+    doc = Document(template_path)
+
+    # Limpar todo o conteúdo existente do corpo
+    body = doc.element.body
+    for child in list(body):
+        if child.tag != qn('w:sectPr'):  # Preservar configurações de seção
+            body.remove(child)
+
+    # OBRIGATÓRIO: Atualizar a barra lateral com o conteúdo da peça atual
+    atualizar_barra_lateral(doc, texto_pedido="...", itens_sumario=["..."])
+
+    # Inserir novo conteúdo seguindo a mesma lógica da função
+    # criar_documento() acima
+    # ...
+
+    return doc
+```
+
+Esta abordagem garante que:
+- A barra lateral com gradiente e conteúdo (Pedido/Sumário) é preservada
+- O logo DPU no cabeçalho é mantido exatamente como no modelo
+- A marca d'água no rodapé é preservada
+- As fontes embutidas (Quattrocento Sans) permanecem no documento
+- A barra lateral sólida das páginas internas é mantida
+
+### Atualização do Conteúdo da Barra Lateral (OBRIGATÓRIO)
+
+**ATENÇÃO: O template contém conteúdo fixo (Pedido + Sumário) de outro caso na barra lateral da primeira página. É OBRIGATÓRIO substituir esse conteúdo pelo resumo e sumário da peça atual. Se essa etapa for omitida, a peça será gerada com texto de outro processo na barra lateral.**
+
+A barra lateral fica no `header2.xml` (header da primeira página), dentro de um shape `wps:wsp` com preenchimento `#D5DBE5` (azul-cinza claro, 35% opacidade). O conteúdo está em `<wps:txbx><w:txbxContent>`.
+
+O namespace `wps` não está registrado no `qn()` do python-docx, então deve ser usado diretamente via lxml:
+
+```python
+from lxml import etree
+from docx.oxml.ns import qn
+
+def atualizar_barra_lateral(doc, texto_pedido, itens_sumario):
+    """
+    Atualiza o conteúdo da barra lateral na primeira página (header2).
+
+    OBRIGATÓRIO ao usar o template. O template contém conteúdo de outro
+    caso que DEVE ser substituído.
+
+    Args:
+        doc: Document do python-docx já carregado a partir do template
+        texto_pedido: str - resumo do pedido/tese para exibir na barra lateral
+        itens_sumario: list de str - títulos das seções (sumário da peça)
+    """
+    section = doc.sections[0]
+    first_header = section.first_page_header
+    header_element = first_header._element
+
+    wps_ns = 'http://schemas.microsoft.com/office/word/2010/wordprocessingShape'
+    for txbx in header_element.iter('{%s}txbx' % wps_ns):
+        txbxContent = txbx.find(qn('w:txbxContent'))
+        if txbxContent is None:
+            continue
+
+        # Verificar se é a textbox da barra lateral
+        full_text = ''.join(t.text or '' for t in txbxContent.iter(qn('w:t')))
+        if 'Pedido' not in full_text and 'Sum' not in full_text:
+            continue
+
+        # Limpar todo o conteúdo existente
+        for child in list(txbxContent):
+            txbxContent.remove(child)
+
+        # Título "Pedido" — Quattrocento Sans, negrito, 14pt, cor #323E4F
+        txbxContent.append(_criar_paragrafo_barra(
+            texto="Pedido", fonte="Quattrocento Sans", tamanho=28,
+            negrito=True, italico=False, cor="323e4f",
+            space_before=120, space_after=240, line_spacing="276"))
+
+        # Texto do pedido — Palatino Linotype, itálico, 11pt, cor #323E4F
+        txbxContent.append(_criar_paragrafo_barra(
+            texto=texto_pedido, fonte="Palatino Linotype", tamanho=22,
+            negrito=False, italico=True, cor="323e4f",
+            space_before=120, space_after=0, line_spacing="276"))
+
+        # Título "Sumário" — Quattrocento Sans, negrito, 14pt, cor #323E4F
+        txbxContent.append(_criar_paragrafo_barra(
+            texto="Sumário", fonte="Quattrocento Sans", tamanho=28,
+            negrito=True, italico=False, cor="323e4f",
+            space_before=240, space_after=0, line_spacing="240"))
+
+        # Itens do sumário — Quattrocento Sans, 9pt, cor #323E4F
+        for item in itens_sumario:
+            txbxContent.append(_criar_paragrafo_barra(
+                texto=item, fonte="Quattrocento Sans", tamanho=18,
+                negrito=False, italico=False, cor="323e4f",
+                space_before=60, space_after=60, line_spacing="240"))
+
+        break  # Encontramos a textbox correta
+
+
+def _criar_paragrafo_barra(texto, fonte, tamanho, negrito, italico, cor,
+                           space_before, space_after, line_spacing):
+    """Cria elemento w:p para inserir na textbox da barra lateral."""
+    p = etree.SubElement(etree.Element('dummy'), qn('w:p'))
+    p.getparent().remove(p)
+
+    pPr = etree.SubElement(p, qn('w:pPr'))
+    spacing = etree.SubElement(pPr, qn('w:spacing'))
+    spacing.set(qn('w:after'), str(space_after))
+    spacing.set(qn('w:before'), str(space_before))
+    spacing.set(qn('w:line'), str(line_spacing))
+    ind = etree.SubElement(pPr, qn('w:ind'))
+    ind.set(qn('w:left'), '0')
+    ind.set(qn('w:right'), '0')
+    ind.set(qn('w:firstLine'), '0')
+    jc = etree.SubElement(pPr, qn('w:jc'))
+    jc.set(qn('w:val'), 'both')
+    td = etree.SubElement(pPr, qn('w:textDirection'))
+    td.set(qn('w:val'), 'btLr')
+
+    r = etree.SubElement(p, qn('w:r'))
+    rPr = etree.SubElement(r, qn('w:rPr'))
+    rFonts = etree.SubElement(rPr, qn('w:rFonts'))
+    rFonts.set(qn('w:ascii'), fonte)
+    rFonts.set(qn('w:cs'), fonte)
+    rFonts.set(qn('w:eastAsia'), fonte)
+    rFonts.set(qn('w:hAnsi'), fonte)
+    b = etree.SubElement(rPr, qn('w:b'))
+    b.set(qn('w:val'), '1' if negrito else '0')
+    i = etree.SubElement(rPr, qn('w:i'))
+    i.set(qn('w:val'), '1' if italico else '0')
+    smallCaps = etree.SubElement(rPr, qn('w:smallCaps'))
+    smallCaps.set(qn('w:val'), '0')
+    strike = etree.SubElement(rPr, qn('w:strike'))
+    strike.set(qn('w:val'), '0')
+    color = etree.SubElement(rPr, qn('w:color'))
+    color.set(qn('w:val'), cor)
+    sz = etree.SubElement(rPr, qn('w:sz'))
+    sz.set(qn('w:val'), str(tamanho))
+    vertAlign = etree.SubElement(rPr, qn('w:vertAlign'))
+    vertAlign.set(qn('w:val'), 'baseline')
+    t = etree.SubElement(r, qn('w:t'))
+    t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+    t.text = texto
+
+    return p
+```
+
+### Atualização do Rodapé da Primeira Página (OBRIGATÓRIO)
+
+**O template contém o número do PAJ de outro processo no rodapé da primeira página (footer2.xml). É OBRIGATÓRIO substituí-lo.**
+
+- Se o Defensor fornecer o número do PAJ, usar o formato: `PAJ XXXX/XXX-XXXXX/SIGLA`
+- Se não houver número de PAJ, usar o número do processo: `PUIL 5003886-26.2022.4.04.7202/SC — Tema 384/TNU`
+
+```python
+def atualizar_rodape_primeira_pagina(doc, texto_rodape):
+    """
+    Substitui o texto do rodapé da primeira página (footer2).
+    """
+    section = doc.sections[0]
+    first_footer = section.first_page_footer
+    footer_element = first_footer._element
+
+    for t_elem in footer_element.iter(qn('w:t')):
+        if t_elem.text and 'PAJ' in t_elem.text:
+            t_elem.text = texto_rodape
+            return
+
+    # Fallback: substituir primeiro texto encontrado
+    for t_elem in footer_element.iter(qn('w:t')):
+        if t_elem.text and t_elem.text.strip():
+            t_elem.text = texto_rodape
+            return
+```
+
+### Assinatura Padrão
+
+As peças devem ser assinadas com o nome do Defensor responsável:
+
+```
+[cidade]/[UF], [data por extenso].
+
+**[NOME DO DEFENSOR]**
+Defensor Público Federal
+```
+
+O nome vem em negrito, centralizado, com espaçamento antes de 48pt. O cargo "Defensor Público Federal" vem logo abaixo, sem negrito. A cidade e data vêm um parágrafo acima, alinhadas à esquerda, sem negrito.
+
+### Barra Lateral das Páginas Internas (Opcional)
+
+A barra lateral sólida (`#323F4F`) que aparece nas páginas 2+ pode, eventualmente, ser utilizada para destacar trechos relevantes do texto daquela página (citações importantes, dados-chave, etc.). Essa funcionalidade é opcional e deve ser implementada caso a caso, conforme orientação do Defensor.
+
+## Cores do Modelo Institucional
+
+| Elemento | Cor Hex | Uso |
+|----------|---------|-----|
+| `#323E4F` / `#323F4F` | Azul-marinho escuro | Barra lateral, títulos H1 |
+| `#D5DBE5` | Azul-cinza claro | Fundo da barra lateral (1ª página, 35% opacidade) |
+| `#595959` | Cinza escuro | Texto do corpo |
+| `#000000` | Preto | Títulos (endereçamento, título da peça) |
+| `#BF8F00` | Dourado | Borda inferior dos headings H1 |
+
+## Fontes do Modelo
+
+| Contexto | Fonte | Tamanho | Estilo |
+|----------|-------|---------|--------|
+| Corpo do texto | Times New Roman | 12pt | Regular, preto |
+| Títulos de seção (`##`) | Times New Roman | 12pt | Negrito, preto |
+| Subtítulos (`###`) | Times New Roman | 12pt | Negrito, preto |
+| Endereçamento | Times New Roman | 12pt | Negrito, preto |
+| Qualificação / assinatura | Times New Roman | 12pt | Regular, preto |
+| Citações longas | Times New Roman | 12pt | Regular, preto |
+| Barra lateral — títulos | Quattrocento Sans | 14pt | Negrito |
+| Barra lateral — texto resumo | Palatino Linotype | 11pt | Itálico |
+| Rodapé paginação | Quattrocento Sans | 10pt | Regular |
+| Rodapé PAJ (1ª página) | Quattrocento Sans | 8pt | Regular |
+
+## Conversão para PDF (OBRIGATÓRIO)
+
+**IMPORTANTE: Após salvar o arquivo .docx, é OBRIGATÓRIO gerar uma versão em PDF idêntica.**
+
+A conversão para PDF deve:
+1. Preservar toda a formatação visual do .docx (barra lateral, cores, fontes)
+2. Manter a mesma paginação
+3. Preservar cabeçalhos, rodapés e marca d'água
+4. Gerar arquivo com o mesmo nome base, apenas com extensão `.pdf`
+
+### Implementação da Conversão
+
+Usar a biblioteca `docx2pdf` (Windows) ou LibreOffice (Linux/Mac):
+
+```python
+# Windows — requer Microsoft Word instalado
+from docx2pdf import convert
+
+def converter_para_pdf(caminho_docx):
+    """
+    Converte o arquivo .docx para PDF mantendo toda a formatação.
+
+    Args:
+        caminho_docx: caminho completo do arquivo .docx
+
+    Returns:
+        caminho do arquivo PDF gerado
+    """
+    caminho_pdf = caminho_docx.replace('.docx', '.pdf')
+    convert(caminho_docx, caminho_pdf)
+    return caminho_pdf
+```
+
+```python
+# Linux/Mac — requer LibreOffice instalado
+import subprocess
+import os
+
+def converter_para_pdf_libreoffice(caminho_docx):
+    """
+    Converte o arquivo .docx para PDF usando LibreOffice.
+
+    Args:
+        caminho_docx: caminho completo do arquivo .docx
+
+    Returns:
+        caminho do arquivo PDF gerado
+    """
+    pasta_saida = os.path.dirname(caminho_docx)
+    cmd = [
+        'libreoffice',
+        '--headless',
+        '--convert-to', 'pdf',
+        '--outdir', pasta_saida,
+        caminho_docx
+    ]
+    subprocess.run(cmd, check=True)
+    caminho_pdf = caminho_docx.replace('.docx', '.pdf')
+    return caminho_pdf
+```
+
+### Detecção Automática de Plataforma
+
+```python
+import platform
+
+def converter_para_pdf(caminho_docx):
+    """
+    Detecta o sistema operacional e usa o conversor apropriado.
+    """
+    sistema = platform.system()
+
+    if sistema == 'Windows':
+        try:
+            from docx2pdf import convert
+            caminho_pdf = caminho_docx.replace('.docx', '.pdf')
+            convert(caminho_docx, caminho_pdf)
+            return caminho_pdf
+        except ImportError:
+            raise RuntimeError(
+                "docx2pdf não instalado. Execute: pip install docx2pdf"
+            )
+    else:
+        # Linux ou Mac — usar LibreOffice
+        return converter_para_pdf_libreoffice(caminho_docx)
+```
+
+### Instalação de Dependências
+
+**Windows:**
+```bash
+pip install docx2pdf
+```
+Requer Microsoft Word instalado no sistema.
+
+**Linux:**
+```bash
+sudo apt-get install libreoffice
+# ou
+sudo yum install libreoffice
+```
+
+**Mac:**
+```bash
+brew install libreoffice
+```
+
+### Integração no Fluxo de Trabalho
+
+Ao final da geração do documento, chamar obrigatoriamente:
+
+```python
+# 1. Salvar o .docx
+caminho_docx = salvar_documento(doc, nome_arquivo, pasta_saida="saida")
+print(f"✓ Documento DOCX salvo em: {caminho_docx}")
+
+# 2. Converter para PDF (OBRIGATÓRIO)
+caminho_pdf = converter_para_pdf(caminho_docx)
+print(f"✓ Documento PDF salvo em: {caminho_pdf}")
+```
+
+## Saída
+
+Salvar **dois arquivos** em `/saida/` para cada peça:
+
+**Formato .docx:**
+- `agravo_interno_tnu_[numero_processo].docx`
+- `agravo_interno_stj_[numero_processo].docx`
+- `embargos_declaracao_tnu_[numero_processo].docx`
+- `embargos_declaracao_stj_[numero_processo].docx`
+- `embargos_divergencia_stj_[numero_processo].docx`
+- `agravo_resp_stj_[numero_processo].docx`
+- `arquivamento_[numero_processo].docx`
+
+**Formato .pdf (idêntico ao .docx):**
+- `agravo_interno_tnu_[numero_processo].pdf`
+- `agravo_interno_stj_[numero_processo].pdf`
+- `embargos_declaracao_tnu_[numero_processo].pdf`
+- `embargos_declaracao_stj_[numero_processo].pdf`
+- `embargos_divergencia_stj_[numero_processo].pdf`
+- `agravo_resp_stj_[numero_processo].pdf`
+- `arquivamento_[numero_processo].pdf`

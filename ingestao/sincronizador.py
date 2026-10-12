@@ -28,6 +28,14 @@ from config import (
 )
 from ingestao import ocr, parser, sisdpu_client
 import contextlib
+import logging
+
+# O log da sincronizacao ia SO' para o callback do SSE, isto e', para a tela do
+# navegador. Qualquer falha de download de anexo desaparecia quando a aba era
+# fechada, e `logs/app.log` nao tinha uma linha sobre a fase de anexos. Agora
+# cada linha vai tambem para o arquivo, que e' o unico lugar onde se pode
+# diagnosticar um sync depois do fato.
+_LOG = logging.getLogger("sincronizador")
 
 
 PAJ_REGEX = re.compile(r"^(\d{4})/(\d{3})-(\d+)$")
@@ -389,8 +397,13 @@ async def _baixar_anexos_sisdpu(
     try:
         resultado = await sisdpu_client.listar_arquivos_paj()
     except Exception as e:
+        # Devolvia uma TUPLA aqui, e o chamador indexa por chave
+        # (resultado_anexos["total_no_sisdpu"]): qualquer excecao na listagem
+        # virava TypeError no meio do sync. Agora devolve o dict do contrato,
+        # com  para o chamador marcar sync_incompleto.
         log(f"  [anexos] erro ao listar: {type(e).__name__}: {e}")
-        return (0, 0, 0)
+        return {"total_no_sisdpu": 0, "baixados": 0, "ocr_ok": 0,
+                "overflow": None, "interrompido": False, "falhou_tela": True}
 
     # Nova assinatura: {"ok": bool, "itens": [...], "diag": {...}}
     lista = resultado.get("itens", []) if isinstance(resultado, dict) else (resultado or [])
@@ -398,6 +411,20 @@ async def _baixar_anexos_sisdpu(
 
     total = len(lista)
     if total == 0:
+        # Distingue "o PAJ nao tem anexo" de "a tela do PAJ nao abriu". Antes,
+        # os dois casos saiam como "nenhum anexo na tela 'Arquivos'", e um PAJ
+        # cheio de documentos era gravado com zero anexos sem nenhum aviso.
+        # `clicou == "NADA"` significa que o botao "Arquivos" nao foi
+        # encontrado, ou seja, a pagina nao era o detalhamento do PAJ.
+        if diag.get("clicou") == "NADA":
+            log("  [anexos] FALHA: a tela 'Arquivos' do PAJ nao abriu — o botao "
+                "nao foi encontrado na pagina. NENHUM anexo pode ser baixado, e "
+                "isto NAO significa que o PAJ esteja sem documentos.")
+            cands = [c.get("texto", "") for c in (diag.get("candidatos_botao_arquivos") or [])]
+            if cands:
+                log(f"  [anexos] candidatos vistos na pagina: {cands[:5]}")
+            return {"total_no_sisdpu": 0, "baixados": 0, "ocr_ok": 0,
+                    "overflow": None, "interrompido": False, "falhou_tela": True}
         log("  [anexos] nenhum anexo na tela 'Arquivos'")
         # Diagnostico detalhado — imprime o que o scraper viu
         if diag:
@@ -539,8 +566,10 @@ async def _baixar_anexos_sisdpu(
         baixados += 1
         log(f"    [anexo {idx}] salvo: {salvo.name}")
 
-        # OCR apenas em PDFs
-        if salvo.suffix.lower() == ".pdf":
+        # Extracao de texto: PDF (nativo + OCR) e DOCX (python-docx). DOCX
+        # importa porque as MINUTAS da assessoria chegam nesse formato — sem
+        # o .txt companion a analise do PAJ nao consegue ler nem revisar.
+        if salvo.suffix.lower() in (".pdf", ".docx"):
             txt_path = salvo.with_suffix(".txt")
             if txt_path.exists() and txt_path.stat().st_size > 0:
                 continue
@@ -549,11 +578,11 @@ async def _baixar_anexos_sisdpu(
                 log(f"    [anexo {idx}] OCR pulado (cancelado)")
                 continue
             try:
-                texto = ocr.extrair_texto(
+                texto = ocr.extrair_texto_arquivo(
                     salvo,
                     deve_cancelar=deve_cancelar,
                     timeout_por_pagina_seg=TIMEOUT_OCR_POR_PAGINA_SEG,
-                )
+                ) or ""
                 txt_path.write_text(texto, encoding="utf-8")
                 if "[OCR abortado pelo usuario" in texto:
                     log(f"    [anexo {idx}] OCR abortado pelo usuário")
@@ -844,14 +873,24 @@ async def _processar_paj_pos_detalhamento(
         # Flag de sincronizacao incompleta: setada quando o usuario cancela
         # NO MEIO do download de anexos. Bloqueia "Elaborar" na UI ate ser
         # ressincronizado com sucesso.
-        if interrompido:
+        falhou_tela = resultado_anexos.get("falhou_tela", False)
+        if interrompido or falhou_tela:
             import datetime as _dt
             metadata["sync_incompleto"] = True
             metadata["sync_incompleto_em"] = _dt.datetime.now().isoformat()
-            metadata["sync_incompleto_motivo"] = (
-                f"cancelado durante download de anexos ({baixados} de "
-                f"{total_anexos} baixados)"
-            )
+            if falhou_tela:
+                # Sem isso, um PAJ cuja tela de anexos nao abriu era gravado
+                # como sincronizado e com zero anexos, e a elaboracao seguia
+                # sem os documentos do processo.
+                metadata["sync_incompleto_motivo"] = (
+                    "a tela 'Arquivos' do PAJ nao abriu — nenhum anexo foi "
+                    "baixado; re-sincronize antes de elaborar"
+                )
+            else:
+                metadata["sync_incompleto_motivo"] = (
+                    f"cancelado durante download de anexos ({baixados} de "
+                    f"{total_anexos} baixados)"
+                )
         else:
             # Sync completou — limpa qualquer flag antigo
             metadata.pop("sync_incompleto", None)
@@ -1025,6 +1064,10 @@ async def rodar(
     Retorna dict com resumo: {"total_caixa": N, "processados": M, "erros": [...]}.
     """
     def log(msg: str) -> None:
+        # Arquivo primeiro: se o callback do SSE morrer (aba fechada), a linha
+        # ja esta gravada e o sync continua diagnosticavel.
+        with contextlib.suppress(Exception):
+            _LOG.info(msg.rstrip())
         with contextlib.suppress(Exception):
             log_callback(msg)
 
@@ -1207,6 +1250,10 @@ async def rodar_anexos_desde_data(
         raise TypeError("data_inicio deve ser datetime.date")
 
     def log(msg: str) -> None:
+        # Arquivo primeiro: se o callback do SSE morrer (aba fechada), a linha
+        # ja esta gravada e o sync continua diagnosticavel.
+        with contextlib.suppress(Exception):
+            _LOG.info(msg.rstrip())
         with contextlib.suppress(Exception):
             log_callback(msg)
 
@@ -1337,6 +1384,10 @@ async def rodar_paj_unico(
     na tela da caixa e clicar nele).
     """
     def log(msg: str) -> None:
+        # Arquivo primeiro: se o callback do SSE morrer (aba fechada), a linha
+        # ja esta gravada e o sync continua diagnosticavel.
+        with contextlib.suppress(Exception):
+            _LOG.info(msg.rstrip())
         with contextlib.suppress(Exception):
             log_callback(msg)
 
@@ -1441,6 +1492,10 @@ async def rodar_paj_via_busca_global(
     `paj_identificador` aceita 'PAJ-2026-044-00311' ou '2026/044-00311'.
     """
     def log(msg: str) -> None:
+        # Arquivo primeiro: se o callback do SSE morrer (aba fechada), a linha
+        # ja esta gravada e o sync continua diagnosticavel.
+        with contextlib.suppress(Exception):
+            _LOG.info(msg.rstrip())
         with contextlib.suppress(Exception):
             log_callback(msg)
 
@@ -1542,6 +1597,10 @@ async def rodar_watchlist(
     from services import watchlist_service
 
     def log(msg: str) -> None:
+        # Arquivo primeiro: se o callback do SSE morrer (aba fechada), a linha
+        # ja esta gravada e o sync continua diagnosticavel.
+        with contextlib.suppress(Exception):
+            _LOG.info(msg.rstrip())
         with contextlib.suppress(Exception):
             log_callback(msg)
 

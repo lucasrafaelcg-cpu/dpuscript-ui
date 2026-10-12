@@ -1,9 +1,14 @@
-"""Rota para servir arquivos de PAJs (PDFs, TXTs, JSONs)."""
+"""Rotas para servir e editar arquivos de PAJs (PDFs, TXTs, JSONs)."""
 
-from fastapi import APIRouter
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import APIRouter, Body
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from services.paj_service import PajNorm, ler_arquivo, ler_texto_robusto
+from services.paj_service import (
+    PajNorm,
+    ler_arquivo,
+    ler_texto_robusto,
+    salvar_texto_peca,
+)
 
 router = APIRouter()
 
@@ -23,3 +28,18 @@ async def serve_file(paj_norm: PajNorm, path: str):
         return PlainTextResponse(conteudo, media_type=content_type)
 
     return FileResponse(arquivo, media_type=content_type)
+
+
+@router.post("/api/files/{paj_norm}/{path:path}")
+async def salvar_arquivo(paj_norm: PajNorm, path: str, payload: dict = Body(...)):
+    """Grava a edicao manual de uma peca em texto, feita no modal do painel.
+
+    As travas (extensao, raiz do PAJ, containment, backup) ficam em
+    `salvar_texto_peca` — esta rota so' transporta. POST em vez de PUT porque
+    o resto do painel ja' usa POST para acao.
+    """
+    conteudo = payload.get("conteudo")
+    if not isinstance(conteudo, str):
+        return JSONResponse({"ok": False, "erro": "payload sem 'conteudo'"}, status_code=400)
+    r = salvar_texto_peca(paj_norm, path, conteudo)
+    return JSONResponse(r, status_code=200 if r.get("ok") else 400)

@@ -208,8 +208,8 @@
 
         <!-- Botao Elaborar: skills + Elaborar (sempre visivel, salvo quando rodando)
              + Ver Resumo (quando ha elaboracao concluida) -->
-        <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-2"
-             x-data="elaborarApp('{{ paj_norm }}')" x-init="init()">
+        <div x-data="elaborarApp('{{ paj_norm }}')" x-init="init()">
+        <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-2">
 
             {% if meta.sync_incompleto %}
             <button class="btn btn-sm btn-disabled gap-1.5"
@@ -264,16 +264,39 @@
                     @click="verResumo()">
                 Ver Resumo
             </button>
-        </div>
-        </div>
-    </div>
 
-    <!-- Erro (se houver) -->
-    <template x-data="elaborarApp('{{ paj_norm }}')" x-init="init()">
-        <div x-show="status === 'error' && error" class="alert alert-error mt-4">
+            <!-- Abre a pasta do PAJ no Explorer. Vai pelo servidor porque o
+                 navegador bloqueia file:// a partir de uma pagina http://. -->
+            <button class="btn btn-sm btn-outline gap-1.5"
+                    x-data="{ abrindo: false, erroPasta: '' }"
+                    :disabled="abrindo"
+                    :title="erroPasta || 'Abrir a pasta deste PAJ no computador, para ver os documentos gerados'"
+                    @click="abrindo = true; erroPasta = '';
+                            fetch('/api/paj/{{ paj_norm }}/abrir-pasta', { method: 'POST' })
+                              .then(r => r.json())
+                              .then(d => { if (!d.ok) erroPasta = d.erro || 'falhou'; })
+                              .catch(e => { erroPasta = String(e); })
+                              .finally(() => { abrindo = false; })">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"></path>
+                </svg>
+                <span x-text="abrindo ? 'abrindo...' : (erroPasta ? 'erro ao abrir' : 'Abrir pasta')"></span>
+            </button>
+        </div><!-- /linha de botoes -->
+
+        <!-- Erro (se houver). Fica DENTRO do componente elaborarApp: antes
+             estava num <template> com x-data proprio, e o Alpine nao renderiza
+             conteudo de <template> sem x-if/x-for. Resultado: falha do CLI
+             (login expirado, limite de uso do plano) ficava no estado e nunca
+             aparecia na tela — a elaboracao parecia simplesmente nao funcionar. -->
+        <div x-show="status === 'error' && error"
+             class="alert alert-error mt-4 text-sm">
             <span x-text="error"></span>
         </div>
-    </template>
+        </div><!-- /elaborarApp -->
+        </div>
+    </div>
 </div>
 
 {% include "partials/sync_modal.html" %}
@@ -351,7 +374,7 @@
     </div>
 
     <!-- Tab: Notas (anotacoes pessoais — NOTAS.md no disco) -->
-    <div x-show="tab === 'notas'" class="bg-base-200 rounded-lg border border-base-300 p-6">
+    <div x-show="tab === 'notas'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
         <div class="flex items-center justify-between mb-3">
             <div>
                 <h3 class="text-lg font-semibold">Notas pessoais</h3>
@@ -369,7 +392,7 @@
     </div>
 
     <!-- Tab: Discutir (chat livre vinculado ao PAJ — explorar tese, brainstorm) -->
-    <div x-show="tab === 'discutir'" class="bg-base-200 rounded-lg border border-base-300 p-6"
+    <div x-show="tab === 'discutir'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6"
          x-data="discutirPaj('{{ paj_norm }}')"
          x-init="init()"
          @recarregar-conversas-paj.window="recarregar()">
@@ -443,7 +466,7 @@
     </div>
 
     <!-- Tab: Resumo -->
-    <div x-show="tab === 'resumo'" class="bg-base-200 rounded-lg border border-base-300 p-6">
+    <div x-show="tab === 'resumo'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
         <h3 class="text-lg font-semibold mb-4">Última movimentação</h3>
         <p class="text-sm text-base-content/80 whitespace-pre-wrap mb-6">{{ meta.desc_mov_caixa or '—' }}</p>
 
@@ -469,7 +492,7 @@
     </div>
 
     <!-- Tab: Movimentacoes -->
-    <div x-show="tab === 'movs'" class="bg-base-200 rounded-lg border border-base-300 p-6">
+    <div x-show="tab === 'movs'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
         <h3 class="text-lg font-semibold mb-4">Movimentações ({{ dados.movimentacoes|length }})</h3>
         {% if dados.movimentacoes %}
         <div class="space-y-4">
@@ -478,18 +501,27 @@
                cima = movimentacao mais recente, batendo com a apresentacao
                do proprio SIS-DPU. #}
             {% for mov in dados.movimentacoes | sort(attribute='seq', reverse=true) %}
-            <div class="border-l-2 border-primary/30 pl-4 hover:border-primary transition-colors mov-item"
-                 data-mov-seq="{{ mov.seq or 0 }}">
-                <div class="flex items-center gap-2 mb-1">
-                    <span class="badge badge-sm badge-ghost font-mono">Seq {{ mov.seq or '?' }}</span>
-                    <span class="text-sm text-base-content/60">{{ (mov.data_original or mov.data) | data_br }}</span>
-                    <span class="badge badge-xs badge-info ml-auto novidade-flag" style="display: none">novo desde sua última visita</span>
+            {# Teor INTEIRO de cada movimentacao, sem recolher: quem le a aba
+               esta' decidindo o caso e precisa do texto, nao do resumo. Os
+               paragrafos sao remontados por services/texto_mov, porque o teor
+               gravado antes de 09/10/2026 vinha com eles colados. #}
+            <div class="sis-mov mov-item" data-mov-seq="{{ mov.seq or 0 }}">
+                <div class="sis-mov-cab">
+                    <span class="font-mono text-xs opacity-90">Seq {{ mov.seq or '?' }}</span>
+                    <span class="text-xs">{{ (mov.data_original or mov.data) | data_br }}</span>
+                    {% set rot = mov.descricao | mov_rotulo %}
+                    {% if rot %}<span class="text-xs opacity-90">{{ rot }}</span>{% endif %}
+                    {% if mov.fases %}<span class="text-xs opacity-75">{{ mov.fases }}</span>{% endif %}
+                    {% if mov.usuario %}<span class="text-xs opacity-60 ml-auto">{{ mov.usuario }}</span>{% endif %}
+                    <span class="sis-marcador novidade-flag" style="display: none">novo desde sua última visita</span>
                 </div>
                 {% if mov.descricao %}
-                <details class="cursor-pointer">
-                    <summary class="text-sm text-base-content/80 line-clamp-2">{{ mov.descricao[:200] }}{% if mov.descricao|length > 200 %}...{% endif %}</summary>
-                    <pre class="text-xs text-base-content/70 whitespace-pre-wrap mt-2 p-3 bg-base-300 rounded max-h-96 overflow-y-auto">{{ mov.descricao }}</pre>
-                </details>
+                {% set ps = mov.descricao | mov_paragrafos %}
+                <div class="sis-mov-teor">
+                    {% for p in ps %}<p>{{ p }}</p>{% endfor %}
+                </div>
+                {% else %}
+                <div class="sis-mov-teor"><p class="opacity-50">Sem teor registrado.</p></div>
                 {% endif %}
             </div>
             {% endfor %}
@@ -500,7 +532,7 @@
     </div>
 
     <!-- Tab: Anexos SISDPU (arquivos baixados pelo sync do botao "Arquivos" do PAJ) -->
-    <div x-show="tab === 'anexos'" class="bg-base-200 rounded-lg border border-base-300 p-6">
+    <div x-show="tab === 'anexos'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
         <div class="flex items-start justify-between gap-4 mb-1">
             <h3 class="text-lg font-semibold">Anexos SISDPU</h3>
             <div class="flex gap-2">
@@ -642,7 +674,7 @@
     </div>
 
     <!-- Tab: Pecas Judiciais -->
-    <div x-show="tab === 'pecas_jud'" class="bg-base-200 rounded-lg border border-base-300 p-6">
+    <div x-show="tab === 'pecas_jud'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
         <h3 class="text-lg font-semibold mb-1">Peças judiciais geradas</h3>
         <p class="text-xs text-base-content/40 mb-4">
             Recursos, agravos, embargos, memoriais, petições — documentos protocolados.
@@ -672,6 +704,30 @@
                                 {% if p.tipo in ('pdf', 'docx', 'doc') %}
                                 <a href="/files/{{ paj_norm }}/{{ p.caminho }}" target="_blank"
                                    class="btn btn-primary btn-xs">Abrir</a>
+                                {% if p.tipo == 'pdf' %}
+                                <!-- Anexa este PDF ao PAJ no SISDPU como movimentacao
+                                     (fase "Petição diversa com conteúdo jurídico").
+                                     Grava de verdade: o clique e' o pedido. O confirm
+                                     e' apenas guarda contra clique acidental, porque a
+                                     movimentacao nao e' removivel depois. -->
+                                <button class="btn btn-xs btn-outline btn-warning"
+                                        x-data="anexarSisdpu('{{ paj_norm }}', '{{ p.caminho|e }}', '{{ p.nome|e }}')"
+                                        :disabled="enviando"
+                                        :title="resultado || 'Anexar este PDF ao PAJ no SISDPU (movimentação: Petição diversa com conteúdo jurídico)'"
+                                        @click="anexar()">
+                                    <span x-show="!enviando && !ok">Anexar no SISDPU</span>
+                                    <span x-show="enviando" class="flex items-center gap-1">
+                                        <span class="loading loading-spinner loading-xs"></span>
+                                        anexando...
+                                    </span>
+                                    <span x-show="ok">✓ anexado</span>
+                                </button>
+                                <button class="btn btn-success btn-xs btn-outline"
+                                        onclick="porNaFila('{{ paj_norm }}', '{{ p.caminho|e }}', 'peca', '{{ p.nome|e }}', this)"
+                                        title="Põe na aba Diligências, para anexar junto com as outras num login só">
+                                    Pôr na fila
+                                </button>
+                                {% endif %}
                                 {% elif p.tipo in ('txt', 'md') %}
                                 <button class="btn btn-ghost btn-xs"
                                         @click="verTxt('{{ paj_norm }}', '{{ p.caminho }}', '{{ p.nome|e }}')">Ler</button>
@@ -705,12 +761,24 @@
     </div>
 
     <!-- Tab: Despachos SISDPU -->
-    <div x-show="tab === 'despachos'" class="bg-base-200 rounded-lg border border-base-300 p-6">
-        <h3 class="text-lg font-semibold mb-1">Despachos SISDPU</h3>
-        <p class="text-xs text-base-content/40 mb-4">
-            Despachos administrativos para lançamento na movimentação do SISDPU.
-            Para .txt, use os botões DOCX/PDF para converter.
-        </p>
+    <div x-show="tab === 'despachos'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+            <div>
+                <h3 class="text-lg font-semibold mb-1">Despachos SISDPU</h3>
+                <p class="text-xs text-base-content/40">
+                    Despachos administrativos para lançamento na movimentação do SISDPU.
+                    O despacho sugerido pela análise nasce aqui sozinho; “Pôr na fila”
+                    manda para a aba Diligências, onde vários vão ao SIS num login só.
+                </p>
+            </div>
+            {% if dados.situacao %}
+            <button class="btn btn-sm btn-outline btn-success shrink-0"
+                    onclick="extrairDespachoDaAnalise('{{ paj_norm }}', this)"
+                    title="Recorta a seção 4 da análise (Sugestão de despacho) e grava como .txt aqui">
+                Extrair da análise
+            </button>
+            {% endif %}
+        </div>
         {% if dados.despachos %}
         <div class="overflow-x-auto rounded-lg border border-base-300">
             <table class="table table-sm">
@@ -742,6 +810,11 @@
                                 {% elif p.tipo in ('txt', 'md') %}
                                 <button class="btn btn-ghost btn-xs"
                                         @click="verTxt('{{ paj_norm }}', '{{ p.caminho }}', '{{ p.nome|e }}')">Ler</button>
+                                <button class="btn btn-success btn-xs btn-outline"
+                                        onclick="porNaFila('{{ paj_norm }}', '{{ p.caminho }}', 'despacho', '{{ p.nome|e }}', this)"
+                                        title="Põe na aba Diligências. O texto vai digitado na descrição da movimentação, sem anexo.">
+                                    Pôr na fila
+                                </button>
                                 <button class="btn btn-info btn-xs btn-outline"
                                         onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'docx', 'Gerar DOCX — {{ p.nome|e }}')">
                                     DOCX
@@ -775,7 +848,7 @@
 
     <!-- Tab: Situação do PAJ — RESULTADO da análise FIRAC (SITUACAO.md).
          O PROMPT_MAX fica recolhido abaixo, como contexto técnico. -->
-    <div x-show="tab === 'prompt'" class="bg-base-200 rounded-lg border border-base-300 p-6">
+    <div x-show="tab === 'prompt'" class="sis-painel bg-base-200 rounded-lg border border-base-300 p-6">
         <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <div>
                 <h3 class="text-lg font-semibold">Situação do PAJ</h3>
@@ -831,14 +904,29 @@
     <div class="modal-box w-11/12 max-w-5xl">
         <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg" id="txt-modal-title">Documento</h3>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
+                <span id="txt-modal-aviso" class="text-xs opacity-70"></span>
+                <button id="txt-modal-btn-editar" class="btn btn-sm btn-warning btn-outline"
+                        onclick="editarTxt()" style="display:none;">Editar</button>
+                <button id="txt-modal-btn-salvar" class="btn btn-sm btn-success"
+                        onclick="salvarTxt()" style="display:none;">Salvar</button>
+                <button id="txt-modal-btn-cancelar" class="btn btn-sm btn-ghost"
+                        onclick="cancelarEdicaoTxt()" style="display:none;">Cancelar</button>
                 <button class="btn btn-sm btn-ghost" onclick="copiarTxt()">Copiar</button>
                 <a id="txt-modal-pdf-link" href="#" target="_blank" class="btn btn-sm btn-ghost" style="display:none;">Ver PDF</a>
-                <form method="dialog"><button class="btn btn-sm btn-ghost">X</button></form>
+                <form method="dialog"><button class="btn btn-sm btn-ghost" onclick="return confirmarFecharTxt()">X</button></form>
             </div>
         </div>
         <pre id="txt-modal-content"
              class="whitespace-pre-wrap text-sm bg-base-300 p-4 rounded-lg max-h-[70vh] overflow-y-auto"></pre>
+        <textarea id="txt-modal-editor"
+                  class="textarea textarea-bordered w-full text-sm font-mono leading-relaxed"
+                  style="display:none; height:70vh;"
+                  spellcheck="true"></textarea>
+        <div id="txt-modal-rodape" class="mt-2 text-xs opacity-70" style="display:none;">
+            Salvar grava o .txt e guarda a versão anterior em <code>_versoes/</code>.
+            O DOCX e o PDF não mudam sozinhos: gere de novo, pelos botões da lista, se precisar.
+        </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
 </dialog>
@@ -847,6 +935,123 @@
 
 {% block scripts %}
 <script>
+/* Anexa um PDF ja gerado ao PAJ no SISDPU, como movimentacao.
+   Grava de verdade (confirmar:true) — o clique do Defensor e' o pedido, e o
+   pedido dele ja' e' a autorizacao. O confirm() e' guarda contra clique
+   acidental, nao segunda autorizacao: movimentacao gravada nao volta atras.
+   A operacao demora ~1 min (abre o SISDPU, sobe o arquivo e confere). */
+/* Recorta a seção 4 da análise FIRAC e grava como despacho .txt neste PAJ.
+   Para os PAJs analisados antes de isso virar automático. */
+function extrairDespachoDaAnalise(pajNorm, botao) {
+    if (botao) botao.disabled = true;
+    fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/despacho-firac', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json; charset=utf-8'},
+        body: JSON.stringify({enfileirar: true})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok && d.motivo === 'criado') {
+            showToast('Despacho criado: ' + d.arquivo + ' — recarregando', 'success');
+            setTimeout(function() { location.reload(); }, 900);
+        } else if (d.ok) {
+            showToast('O despacho desta análise já existe: ' + d.arquivo, 'info');
+            if (botao) botao.disabled = false;
+        } else {
+            showToast('Não extraí — ' + (d.motivo || d.erro || 'erro'), 'error');
+            if (botao) botao.disabled = false;
+        }
+    }).catch(function(e) {
+        showToast('Erro de rede: ' + e, 'error');
+        if (botao) botao.disabled = false;
+    });
+}
+
+/* Põe um arquivo do PAJ na fila de Diligências (aba lateral), para ir ao
+   SISDPU em lote. Não grava nada no SIS: só enfileira. O par PAJ ↔ arquivo
+   fica fixado aqui, e o servidor confere que o arquivo mora mesmo dentro da
+   pasta deste PAJ. */
+function porNaFila(pajNorm, caminho, tipo, nome, botao) {
+    if (botao) botao.disabled = true;
+    fetch('/api/diligencias', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json; charset=utf-8'},
+        body: JSON.stringify({
+            paj_norm: pajNorm, arquivo: caminho, tipo: tipo, titulo: nome
+        })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok) {
+            showToast(d.motivo === 'registrada'
+                ? 'Na fila de Diligências: ' + nome
+                : 'Já estava na fila: ' + nome, 'success');
+            if (botao) botao.textContent = '✓ na fila';
+        } else {
+            showToast('Não enfileirei — ' + (d.erro || 'erro'), 'error');
+            if (botao) botao.disabled = false;
+        }
+    }).catch(function(e) {
+        showToast('Erro de rede: ' + e, 'error');
+        if (botao) botao.disabled = false;
+    });
+}
+
+function anexarSisdpu(pajNorm, caminho, nome) {
+    return {
+        enviando: false,
+        ok: false,
+        resultado: '',
+
+        async anexar() {
+            if (this.enviando || this.ok) return;
+            if (!confirm('Anexar "' + nome + '" ao PAJ ' + pajNorm +
+                         ' no SISDPU?\n\nFase: Petição diversa com conteúdo jurídico.\n' +
+                         'A movimentação não pode ser removida depois.')) return;
+
+            this.enviando = true;
+            this.resultado = '';
+            showToast('Anexando no SISDPU… leva cerca de 1 minuto', 'info');
+
+            // descricao = nome do arquivo sem extensao (os nomes ja identificam
+            // a peca e a parte, ex.: "Manifestacao Impugnacao Laudo Clarissa Lopes")
+            var desc = nome.replace(/\.[^.]+$/, '');
+
+            try {
+                var resp = await fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/movimentar', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json; charset=utf-8'},
+                    body: JSON.stringify({
+                        anexos_no_paj: [caminho],
+                        descricao_html: '<p>' + desc + '</p>',
+                        confirmar: true
+                    })
+                });
+                var d = await resp.json();
+
+                if (d.ok && d.gravado) {
+                    this.ok = true;
+                    this.resultado = 'Anexado — ' + (d.fase || '');
+                    showToast('Anexado no SISDPU: ' + (d.assistido || pajNorm), 'success');
+                } else if (d.abortado) {
+                    this.resultado = d.erro || 'abortado';
+                    showToast('Não anexei — ' + this.resultado, 'error');
+                } else if (d.ok && !d.gravado) {
+                    // submeteu mas a verificacao nao confirmou: NAO repetir,
+                    // para nao duplicar a movimentacao
+                    this.resultado = d.aviso || 'não confirmado';
+                    showToast('Enviei, mas não confirmei a gravação. Confira no ' +
+                              'SISDPU antes de tentar de novo.', 'error');
+                } else {
+                    this.resultado = d.erro || 'falha';
+                    showToast('Erro: ' + this.resultado, 'error');
+                }
+            } catch (e) {
+                this.resultado = String(e);
+                showToast('Erro de rede: ' + e, 'error');
+            } finally {
+                this.enviando = false;
+            }
+        }
+    };
+}
+
 function copiarPrompt() {
     var el = document.getElementById('prompt-content');
     if (!el) return;
@@ -891,6 +1096,11 @@ async function gerarSituacao(pajNorm) {
     btn.innerHTML = htmlOriginal;
 }
 
+// Estado do modal de texto. `editavel` so' e' true para peca gerada na RAIZ
+// do PAJ: anexo do SISDPU e OCR ficam em pecas/ e sao copia do processo, que
+// nao se edita aqui (o backend recusa de qualquer forma).
+const txtModalEstado = {pajNorm: '', caminho: '', original: '', editando: false, editavel: false};
+
 async function verTxt(pajNorm, caminho, titulo) {
     const modal = document.getElementById('txt-modal');
     const content = document.getElementById('txt-modal-content');
@@ -907,13 +1117,90 @@ async function verTxt(pajNorm, caminho, titulo) {
         pdfLink.style.display = 'inline-flex';
     }
 
+    const ext = (caminho.split('.').pop() || '').toLowerCase();
+    txtModalEstado.pajNorm = pajNorm;
+    txtModalEstado.caminho = caminho;
+    txtModalEstado.editando = false;
+    txtModalEstado.editavel = !caminho.includes('/') && (ext === 'txt' || ext === 'md');
+    _txtModalBotoes();
+
     modal.showModal();
     try {
-        const resp = await fetch('/files/' + pajNorm + '/' + caminho);
+        // encodeURI, nao concatenacao crua: nome de peca leva espaco, e um
+        // '#' ou '?' no nome cortaria a URL silenciosamente.
+        const resp = await fetch(encodeURI('/files/' + pajNorm + '/' + caminho));
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        content.textContent = await resp.text();
+        const texto = await resp.text();
+        txtModalEstado.original = texto;
+        content.textContent = texto;
     } catch (e) {
+        txtModalEstado.editavel = false;
+        _txtModalBotoes();
         content.textContent = 'Erro ao carregar: ' + e.message;
+    }
+}
+
+function _txtModalBotoes(aviso) {
+    const e = txtModalEstado;
+    document.getElementById('txt-modal-content').style.display = e.editando ? 'none' : 'block';
+    document.getElementById('txt-modal-editor').style.display = e.editando ? 'block' : 'none';
+    document.getElementById('txt-modal-rodape').style.display = e.editando ? 'block' : 'none';
+    document.getElementById('txt-modal-btn-editar').style.display =
+        (e.editavel && !e.editando) ? 'inline-flex' : 'none';
+    document.getElementById('txt-modal-btn-salvar').style.display = e.editando ? 'inline-flex' : 'none';
+    document.getElementById('txt-modal-btn-cancelar').style.display = e.editando ? 'inline-flex' : 'none';
+    document.getElementById('txt-modal-aviso').textContent = aviso || '';
+}
+
+function editarTxt() {
+    const editor = document.getElementById('txt-modal-editor');
+    editor.value = txtModalEstado.original;
+    txtModalEstado.editando = true;
+    _txtModalBotoes();
+    editor.focus();
+}
+
+function cancelarEdicaoTxt() {
+    const editor = document.getElementById('txt-modal-editor');
+    if (editor.value !== txtModalEstado.original &&
+        !confirm('Descartar as alterações não salvas?')) return;
+    txtModalEstado.editando = false;
+    _txtModalBotoes();
+}
+
+// Fechar pelo X com edicao pendente perderia o texto digitado sem aviso.
+function confirmarFecharTxt() {
+    const editor = document.getElementById('txt-modal-editor');
+    if (txtModalEstado.editando && editor.value !== txtModalEstado.original) {
+        return confirm('Há alterações não salvas. Fechar mesmo assim?');
+    }
+    return true;
+}
+
+async function salvarTxt() {
+    const editor = document.getElementById('txt-modal-editor');
+    const btn = document.getElementById('txt-modal-btn-salvar');
+    const conteudo = editor.value;
+    btn.disabled = true;
+    _txtModalBotoes('salvando...');
+    try {
+        const resp = await fetch(encodeURI('/api/files/' + txtModalEstado.pajNorm + '/' + txtModalEstado.caminho), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({conteudo: conteudo}),
+        });
+        const d = await resp.json();
+        if (!d.ok) throw new Error(d.erro || ('HTTP ' + resp.status));
+        txtModalEstado.original = conteudo;
+        txtModalEstado.editando = false;
+        document.getElementById('txt-modal-content').textContent = conteudo;
+        _txtModalBotoes('salvo (' + d.bytes + ' bytes; versão anterior em _versoes/)');
+        if (typeof showToast === 'function') showToast('Peça salva', 'success');
+    } catch (e) {
+        _txtModalBotoes('ERRO: ' + e.message);
+        if (typeof showToast === 'function') showToast('Falha ao salvar: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
     }
 }
 

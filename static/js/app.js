@@ -438,6 +438,7 @@ function triagemBox() {
     return {
         itens: [],
         aberta: true,
+        concluindoTodos: false,
         init() { this.recarregar(); },
         async recarregar() {
             try {
@@ -470,6 +471,46 @@ function triagemBox() {
             }
         },
         corBadge(tipo) { return CORES[tipo] || 'badge-ghost'; },
+        // Conclui a fila inteira. Pede confirmação com o número de eventos:
+        // um clique errado aqui limparia toda a triagem de uma vez, e a volta
+        // só acontece na próxima sincronização que reabrir os eventos.
+        async concluirTodos() {
+            const pajs = this.itens.map(i => i.paj_norm);
+            if (!pajs.length) return;
+            const msg = pajs.length === 1
+                ? 'Concluir a triagem de 1 evento?'
+                : 'Concluir a triagem de ' + pajs.length + ' eventos de uma vez?';
+            if (!confirm(msg)) return;
+            this.concluindoTodos = true;
+            try {
+                const r = await fetch('/api/triagem/concluir-todos', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pajs: pajs}),
+                });
+                const d = await r.json();
+                const feitos = d.concluidos || [];
+                // `ignorados` são os que já não estavam pendentes no servidor
+                // (tela desatualizada): também saem da lista.
+                const fora = feitos.concat(d.ignorados || []);
+                this.itens = this.itens.filter(i => fora.indexOf(i.paj_norm) === -1);
+                if (d.ok) {
+                    showToast(feitos.length + ' triagem(ns) concluída(s)', 'success');
+                } else {
+                    // Parcial: o que deu certo já saiu da lista; o resto fica
+                    // na tela para o Defensor ver qual ficou pendente.
+                    showToast(
+                        feitos.length + ' concluída(s), ' +
+                        (d.falharam || []).length + ' com erro',
+                        'warning');
+                }
+            } catch (e) {
+                showToast('Erro ao concluir a fila: ' + e.message, 'error');
+            } finally {
+                this.concluindoTodos = false;
+            }
+        },
+
         async concluir(item) {
             try {
                 const r = await fetch('/api/paj/' + encodeURIComponent(item.paj_norm) + '/triagem/concluir', { method: 'POST' });

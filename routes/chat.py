@@ -118,7 +118,9 @@ async def elaborar_status(paj_norm: PajNorm):
             "status": persist.get("status", "done"),
             "last_action": persist.get("last_action", ""),
             "summary": persist.get("summary", ""),
-            "error": "",
+            # `error` vem do disco: falha de login/limite persistida precisa
+            # continuar explicada depois que a sessao em memoria morre.
+            "error": persist.get("error", ""),
             "alive": False,
             "persisted": True,
             "concluido_em": persist.get("concluido_em", ""),

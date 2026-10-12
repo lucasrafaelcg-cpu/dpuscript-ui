@@ -13,7 +13,7 @@ Adaptado do dpuscript-ui original para o fork local (TRF3/Osasco):
 
 Plano (JSON):
 {
-  "tipo_atuacao": "RECURSO" | "DESPACHO_INTERNO" | "ARQUIVAMENTO" | "NAO_ATUAR",
+  "tipo_atuacao": "RECURSO" | "PETICAO" | "DESPACHO_INTERNO" | "ARQUIVAMENTO" | "NAO_ATUAR",
   "tipo_peca": "<peca cabivel — ex: contestacao, replica, apelacao, ...>",
   "decisao_recorrida_descricao": "1-2 frases identificando a decisao/ato analisado",
   "decisao_recorrida_arquivo": "<nome do .txt local que contem a decisao, se houver>",
@@ -34,8 +34,8 @@ import re
 import subprocess
 from pathlib import Path
 
-from config import OFICIO_GERAL, PAJS_DIR
-from services.chat_service import CLAUDE_CMD
+from config import OFICIO_GERAL, OFICIO_TITULO, OFICIO_UNIDADE, PAJS_DIR
+from services.chat_service import resolver_claude_cmd
 from services.paj_service import ler_texto_robusto, listar_pecas_assistido
 
 # Regras de atuacao acumuladas/editadas pelo Defensor. Lidas a cada chamada —
@@ -79,11 +79,10 @@ def classificar_erro_claude(proc) -> str:
         or "failed to authenticate" in baixo
         or "oauth token has expired" in baixo
     ):
-        return (
-            "Falha de autenticacao do Claude CLI (401) — o token de login "
-            "provavelmente expirou. Rode `claude` num terminal e refaca o login "
-            "(/login); depois reinicie o painel para o subprocesso usar o token novo."
-        )
+        # Mensagem unica, compartilhada com os fluxos de chat/elaboracao.
+        from services.chat_service import MSG_FALHA_AUTH
+
+        return MSG_FALHA_AUTH
     trecho = saida[-500:] if saida else "(sem saida no stdout/stderr)"
     return f"Claude saiu com codigo {proc.returncode}: {trecho}"
 
@@ -142,8 +141,8 @@ def _montar_prompt(paj: str, meta: dict, pasta: Path) -> str:
     sisdpu_path = pasta / "sisdpu.txt"
     sisdpu_texto = ler_texto_robusto(sisdpu_path) if sisdpu_path.exists() else ""
 
-    return f"""Voce e' assistente juridico de um(a) Defensor(a) Publico(a) Federal da DPU,
-1o Oficio Geral em Osasco/SP (atuacao perante a Justica Federal — TRF3, 1a instancia
+    return f"""Voce e' assistente juridico de um(a) Defensor(a) Publico(a) Federal da
+{OFICIO_UNIDADE}, {OFICIO_TITULO} (atuacao perante a Justica Federal — TRF5, 1a instancia
 e Juizados Especiais Federais).{bloco_regras}
 
 TAREFA: analisar o PAJ e propor um PLANO DE ATUACAO. O Defensor vai revisar antes
@@ -172,7 +171,7 @@ TEXTO DO SISDPU (caixa/andamento):
 {sisdpu_texto[:6000]}
 
 ORIENTACOES:
-- Atuacao perante a Justica Federal de 1o grau (TRF3) e JEFs. NAO assuma TNU/STJ.
+- Atuacao perante a Justica Federal de 1o grau (TRF5) e JEFs. NAO assuma TNU/STJ.
 - Os PRAZOS sao calculados automaticamente pelo painel (dobra da DPU no rito comum
   do CPC; sem dobra nos Juizados; prazos corridos no processo penal). NAO e' preciso
   raciocinar sobre contagem de prazo no plano.
@@ -180,12 +179,34 @@ ORIENTACOES:
   citacao, juntada ou intimacao NAO e' "favoravel" — classifique como neutra.
 - So chame de favoravel/desfavoravel o que efetivamente julga ou decide o merito
   ou um incidente relevante.
+- **NUNCA use DESPACHO_INTERNO para adiar ou delegar a assessoria/outrem a
+  elaboracao de uma peca cabivel.** Se o PAJ exige QUALQUER manifestacao ao
+  juizo — recurso contra decisao, ou nao (resposta a intimacao/determinacao,
+  cumprimento de decisao, replica, impugnacao, peticao intercorrente, peticao
+  inicial etc.) — classifique como RECURSO ou PETICAO e a peca sera' redigida
+  na integra na etapa de elaboracao. DESPACHO_INTERNO so' cabe quando NAO ha'
+  nenhuma peca judicial a fazer agora (mero acompanhamento, ciencia de ato
+  neutro, prazo so' de controle interno). Nao aguarde a assessoria: se ela ja'
+  entregou algo, use; se nao entregou e a peca e' cabivel, planeje a peca.
+- **PAJ de PRIMEIRO CONTATO** (abertura, redistribuicao, PAJ novo na caixa):
+  antes de escolher a atuacao, avalie o MERITO — direito pleiteado, requisitos
+  legais confrontados com o que os documentos provam, obstaculos (prescricao,
+  prévio requerimento administrativo, coisa julgada, competencia, tese
+  contraria consolidada) — e registre no campo `analise_completa` a conclusao
+  de viabilidade: VIAVEL, AINDA NAO VIAVEL (dizendo qual prova falta) ou
+  INVIAVEL. Consulte `~/.claude/conhecimento-dpu/` (via `INDICE.md`) e cite so'
+  o que estiver literalmente na base.
 
 ATUACAO POSSIVEL:
 - RECURSO + peca recursal especifica (ex: apelacao, agravo de instrumento, agravo
   interno, embargos de declaracao, recurso inominado no JEF)
-- DESPACHO_INTERNO + tipo (despacho_acompanhamento, despacho_arquivamento) — apenas
-  registro no SISDPU, sem peca judicial
+- PETICAO + peca especifica (ex: peticao_inicial, contestacao, replica,
+  manifestacao, impugnacao, cumprimento_sentenca) — USE quando o PAJ exige
+  resposta/manifestacao ao juizo que NAO seja recurso contra uma decisao (ex.:
+  intimacao para se manifestar sobre bloqueio SISBAJUD, determinacao de emenda,
+  citacao por edital na curadoria especial, cumprimento de decisao)
+- DESPACHO_INTERNO + tipo (despacho_acompanhamento, despacho_arquivamento) — APENAS
+  quando NAO ha' nenhuma peca judicial a fazer agora (ver regra acima)
 - ARQUIVAMENTO + despacho_arquivamento (exito definitivo ou nada mais a fazer)
 - NAO_ATUAR + "nenhuma" — apenas ciencia, aguardar
 
@@ -218,7 +239,7 @@ PLANO_JSON_SCHEMA = {
     "properties": {
         "tipo_atuacao": {
             "type": "string",
-            "enum": ["RECURSO", "DESPACHO_INTERNO", "ARQUIVAMENTO", "NAO_ATUAR"],
+            "enum": ["RECURSO", "PETICAO", "DESPACHO_INTERNO", "ARQUIVAMENTO", "NAO_ATUAR"],
         },
         # Peca cabivel — string livre (a atuacao na 1a instancia e' variada demais
         # para um enum fechado). O prompt orienta o vocabulario.
@@ -293,8 +314,9 @@ async def planejar_elaboracao(
     # --json-schema: forca a resposta a seguir o esquema; --setting-sources user:
     # ignora o CLAUDE.md do projeto (tom conversacional). Prompt via stdin (limite
     # de 32k chars no command line do Windows).
+    claude_cmd = resolver_claude_cmd()
     cmd = [
-        *CLAUDE_CMD,
+        *claude_cmd,
         "--print",
         "--output-format", "json",
         "--json-schema", json.dumps(PLANO_JSON_SCHEMA),
@@ -321,7 +343,7 @@ async def planejar_elaboracao(
     except subprocess.TimeoutExpired:
         return {"ok": False, "erro": "Timeout chamando o Claude CLI"}
     except FileNotFoundError:
-        return {"ok": False, "erro": f"Claude CLI nao encontrado: {' '.join(CLAUDE_CMD)}"}
+        return {"ok": False, "erro": f"Claude CLI nao encontrado: {' '.join(claude_cmd)}"}
     except Exception as e:
         return {"ok": False, "erro": f"{type(e).__name__}: {e}"}
 

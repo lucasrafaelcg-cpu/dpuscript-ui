@@ -4,7 +4,7 @@ Implementa a Fase 1 do fluxo de trabalho (docs/FLUXO_DE_TRABALHO.md): regras
 determinísticas (sem IA, auditáveis) que identificam, nas movimentações do
 SISDPU, qual evento trouxe o PAJ à caixa — um dos 5 fluxos de entrada:
 
-    1. abertura_paj      — abertura ou redistribuição à unidade de Osasco
+    1. abertura_paj      — abertura ou redistribuição à unidade
     2. retorno_assistido — atendimento de retorno (docs/requerimento do assistido)
     3. intimacao         — intimação/citação/notificação judicial
     4. resposta_oficio   — resposta de órgão externo a ofício expedido
@@ -36,7 +36,7 @@ TIPO_RESPOSTA_OFICIO = "resposta_oficio"
 TIPO_CONTROLE_PRAZO = "controle_prazo"
 
 LABELS = {
-    TIPO_ABERTURA: "Abertura de PAJ (ou redistribuição a Osasco)",
+    TIPO_ABERTURA: "Abertura de PAJ (ou redistribuição à unidade)",
     TIPO_RETORNO: "Retorno do Assistido",
     TIPO_INTIMACAO: "Intimação judicial",
     TIPO_RESPOSTA_OFICIO: "Resposta de ofício",
@@ -67,6 +67,78 @@ _PADROES: list[tuple[str, re.Pattern]] = [
 # ignorar: fase "Decurso de prazo", descrição 'PAJ em decurso alterado de
 # "29/11/2026" para "29/05/2028" com situação "PREVISTO" a pedido do Defensor.'
 _RE_DECURSO_PREVISTO = re.compile(r"situa[çc][ãa]o\s*\"?\s*previsto", re.I)
+
+
+# ---------------------------------------------------------------------------
+# Minuta da assessoria aguardando revisao do Defensor
+# ---------------------------------------------------------------------------
+# CUIDADO com a direcao do fluxo: "minuta" aparece nos DOIS sentidos nas
+# movimentacoes reais, e confundi-los faria o painel pedir revisao de uma
+# minuta que ainda nem existe.
+#
+#   Defensor -> assessoria (PEDIDO, nada a revisar ainda):
+#     "encaminha-se a assessoria para minuta de PS"
+#     "tramito ao gabinete para minuta de peticao de contrarrazoes"
+#     "sera minutada peticao de impugnacao" / "deve ser minutada peticao"
+#
+#   Assessoria -> Defensor (ENTREGA, e' isto que queremos):
+#     "Peticao minutada. Aguarde-se correcao."
+#     "Encaminho para correcao Minuta de Peticao; Encontra-se no editor de
+#      texto do PJE 2X; Link: ..."
+#     "Minutada peticao reiterando os pedidos..."
+_RE_MINUTA_ENTREGUE = re.compile(
+    r"minutad[ao]\b"
+    r"|encaminho\s+para\s+correc[ãa]o?i?\b"
+    r"|minuta[^.]{0,60}(para\s+(corre[çc]|revis|aprecia|an[áa]lise|assinatura)"
+    r"|aguarde-?se\s+corre[çc]|anexa|pronta|elaborada|em\s+anexo)"
+    r"|(segue|encaminho|encaminha-se)\s+(a\s+)?minuta"
+    r"|editor\s+de\s+texto\s+do\s+pje",
+    re.I,
+)
+_RE_MINUTA_SOLICITADA = re.compile(
+    r"(a|à|ao)\s+(assessoria|gabinete|apoio)\s+(para|com\s+vistas)"
+    r"|encaminha(-se|rei|r)?\s+(a|à|ao)\s+(assessoria|gabinete)"
+    r"|tramit(o|ar|e-se)\s+(a|ao|à)?\s*(assessoria|gabinete)"
+    r"|(ser[áa]|deve\s+ser|dever[áa]\s+ser)\s+minutad"
+    r"|tramitar\s+para\s+minuta"
+    r"|encaminharei\s+para\s+minuta",
+    re.I,
+)
+_RE_LINK = re.compile(r"https?://\S+", re.I)
+
+
+def detectar_minuta_para_revisao(movs: list[dict], max_janela: int = 8) -> dict | None:
+    """Minuta produzida pela assessoria e devolvida para revisao do Defensor.
+
+    Varre as movimentacoes mais recentes para tras. Retorna dict com `seq`,
+    `data`, `descricao` e `link` (editor do PJe, quando houver), ou None.
+
+    Uma movimentacao que peca a minuta a assessoria NAO conta — so' a entrega.
+    Quando os dois padroes aparecem no mesmo texto, a ENTREGA vence apenas se
+    casar fora do trecho de pedido; na duvida, prevalece o pedido (conservador:
+    melhor nao acionar a revisao do que revisar algo inexistente).
+    """
+    movs_ord = sorted(movs or [], key=lambda m: int(m.get("seq", 0) or 0), reverse=True)
+    for mov in movs_ord[:max_janela]:
+        texto = " ".join(
+            str(mov.get(k) or "") for k in ("fases", "descricao", "movimentacao")
+        )
+        if not texto.strip() or "minut" not in texto.lower():
+            # "editor de texto do PJe" sempre vem junto de minuta; sem "minut"
+            # no texto nao ha' o que revisar.
+            continue
+        if not _RE_MINUTA_ENTREGUE.search(texto):
+            continue
+        if _RE_MINUTA_SOLICITADA.search(texto):
+            continue
+        link = _RE_LINK.search(texto)
+        return {
+            "seq": mov.get("seq"),
+            "data": mov.get("data_original") or mov.get("data") or "",
+            "descricao": texto.strip()[:600],
+            "link": link.group(0) if link else "",
+        }
+    return None
 
 
 def classificar_movimentacao(mov: dict) -> str | None:

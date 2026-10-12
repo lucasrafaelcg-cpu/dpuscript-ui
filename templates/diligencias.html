@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}Diligências{% endblock %}
+
+{% block content_class %}flex flex-col flex-1 p-0{% endblock %}
+
+{% block head %}
+<style>
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11"; }
+  .dl-row { transition: background-color .12s ease; }
+  .dl-row:hover { background-color: hsl(var(--b3) / 0.75); }
+  .dl-row.anexado { opacity: 0.55; }
+  .dl-texto { white-space: pre-wrap; font-size: .78rem; line-height: 1.5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="diligenciasApp()" x-init="init()" x-cloak class="flex flex-col flex-1">
+
+  <!-- Cabeçalho -->
+  <div class="px-8 pt-6 pb-4 flex items-start gap-6">
+    <div class="flex-1 min-w-0">
+      <h1 class="text-2xl font-bold">Diligências</h1>
+      <p class="text-sm opacity-70 mt-1">
+        Despachos e peças produzidos no painel, à espera do SISDPU. Marque o que
+        já revisou e anexe tudo de uma vez — o SISDPU é acessado uma única vez,
+        então seu login no navegador cai só uma vez.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <button class="btn btn-sm btn-ghost" @click="carregar()" :disabled="carregando">
+        Atualizar
+      </button>
+      <button class="btn btn-sm btn-ghost" @click="limparAnexados()"
+              x-show="itens.some(i => i.status === 'anexado')">
+        Limpar anexados
+      </button>
+      <button class="btn btn-sm btn-outline" @click="anexar(true)"
+              :disabled="lote.rodando || nMarcados === 0"
+              title="Percorre o mesmo caminho no SISDPU e para antes de submeter. Nada é gravado.">
+        Ensaiar
+      </button>
+      <button class="btn btn-sm btn-primary" @click="anexar()"
+              :disabled="lote.rodando || nMarcados === 0">
+        <span x-show="lote.rodando" class="loading loading-spinner loading-xs"></span>
+        <span x-text="lote.rodando ? 'Anexando…' : 'Anexar marcados no SISDPU'"></span>
+        <span x-show="!lote.rodando && nMarcados > 0"
+              class="badge badge-sm" x-text="nMarcados"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Andamento do lote -->
+  <div class="px-8" x-show="lote.rodando || lote.resultados.length">
+    <div class="bg-base-200 rounded-lg border border-base-300 p-4 mb-4">
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold">
+          <span x-text="lote.feitos"></span> de <span x-text="lote.total"></span>
+        </span>
+        <progress class="progress progress-primary flex-1"
+                  :value="lote.feitos" :max="lote.total || 1"></progress>
+        <span class="text-xs opacity-70" x-text="lote.atual"></span>
+      </div>
+
+      <div x-show="lote.parado_por" class="alert alert-error mt-3 text-xs">
+        <span x-text="lote.parado_por"></span>
+      </div>
+
+      <ul class="mt-3 space-y-1" x-show="lote.resultados.length">
+        <template x-for="r in lote.resultados" :key="r.id">
+          <li class="text-xs flex gap-2">
+            <span x-text="r.ok ? '✓' : '✕'"
+                  :class="r.ok ? 'text-success' : 'text-error'"></span>
+            <span class="font-mono tnum" x-text="r.paj"></span>
+            <span class="opacity-70" x-text="r.titulo"></span>
+            <span class="opacity-50" x-text="'— ' + r.detalhe"></span>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Barra de seleção -->
+  <div class="px-8 pb-2 flex items-center gap-4 text-sm" x-show="itens.length">
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" class="checkbox checkbox-sm"
+             :checked="nMarcados > 0 && nMarcados === nPendentes"
+             :indeterminate.camel="nMarcados > 0 && nMarcados < nPendentes"
+             @change="marcarTodos($event.target.checked)">
+      <span>Marcar todas as pendentes</span>
+    </label>
+    <span class="opacity-60" x-text="nPendentes + ' pendente(s), ' + nMarcados + ' marcada(s)'"></span>
+  </div>
+
+  <!-- Lista -->
+  <div class="px-8 pb-10 flex-1">
+    <div x-show="!carregando && !itens.length" class="text-center py-16 opacity-60">
+      <p class="text-sm">Nada na fila.</p>
+      <p class="text-xs mt-2">
+        Despachos entram sozinhos quando a análise do PAJ é gerada; peças entram
+        quando o DOCX/PDF é produzido. Da tela do PAJ dá para pôr qualquer
+        arquivo aqui pelo botão “Pôr na fila”.
+      </p>
+    </div>
+
+    <div class="space-y-2">
+      <template x-for="it in itens" :key="it.id">
+        <div class="dl-row bg-base-200 rounded-lg border border-base-300 p-3"
+             :class="it.status === 'anexado' && 'anexado'">
+          <div class="flex items-start gap-3">
+            <input type="checkbox" class="checkbox checkbox-sm mt-1"
+                   :checked="it.marcado"
+                   :disabled="it.status === 'anexado' || !it.existe || lote.rodando"
+                   @change="marcar(it, $event.target.checked)">
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="badge badge-xs"
+                      :class="it.tipo === 'despacho' ? 'badge-warning' : 'badge-info'"
+                      x-text="it.tipo === 'despacho' ? 'despacho' : 'peça'"></span>
+                <a :href="'/paj/' + it.paj_norm" class="font-mono text-sm tnum link link-hover"
+                   x-text="it.paj"></a>
+                <span class="text-sm opacity-80 truncate" x-text="it.assistido"></span>
+              </div>
+
+              <div class="text-xs opacity-70 mt-1">
+                <span x-text="it.arquivo"></span>
+                <span x-show="!it.existe" class="text-error ml-2">arquivo não está mais lá</span>
+                <span x-show="it.editado" class="text-warning ml-2">editado depois de entrar na fila</span>
+              </div>
+
+              <div class="text-xs mt-1" x-show="it.status === 'anexado'">
+                <span class="text-success">✓ anexado em</span>
+                <span x-text="it.anexado_em"></span>
+              </div>
+              <div class="text-xs text-error mt-1" x-show="it.status === 'erro'"
+                   x-text="it.erro"></div>
+
+              <!-- Como vai entrar no SISDPU -->
+              <div class="text-xs opacity-60 mt-1">
+                <template x-if="it.tipo === 'despacho'">
+                  <span>Fase “Despacho. Impulso do paj” — o texto vai digitado na descrição da movimentação, sem anexo.</span>
+                </template>
+                <template x-if="it.tipo !== 'despacho'">
+                  <span>Fase “Petição diversa com conteúdo jurídico” — o arquivo vai anexado.</span>
+                </template>
+              </div>
+
+              <label class="flex items-center gap-2 mt-2 text-xs cursor-pointer w-fit"
+                     x-show="it.status !== 'anexado'">
+                <input type="checkbox" class="toggle toggle-xs"
+                       :checked="it.mostrar_na_internet"
+                       :disabled="lote.rodando"
+                       @change="visibilidade(it, $event.target.checked)">
+                <span :class="it.mostrar_na_internet && 'text-warning'">
+                  Mostrar a descrição ao assistido na internet
+                </span>
+              </label>
+            </div>
+
+            <div class="flex flex-col gap-1 shrink-0">
+              <button class="btn btn-ghost btn-xs" @click="verTexto(it)"
+                      x-show="it.tipo === 'despacho'">Ver texto</button>
+              <a class="btn btn-ghost btn-xs"
+                 :href="'/files/' + it.paj_norm + '/' + encodeURI(it.arquivo)"
+                 target="_blank" x-show="it.tipo !== 'despacho'">Abrir</a>
+              <button class="btn btn-ghost btn-xs text-error" @click="remover(it)"
+                      :disabled="lote.rodando">Tirar da fila</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Texto do despacho -->
+  <dialog id="dlg-texto" class="modal">
+    <div class="modal-box max-w-3xl">
+      <h3 class="font-bold text-lg" x-text="textoTitulo"></h3>
+      <p class="text-xs opacity-60 mt-1">
+        Para editar, abra o PAJ e use a aba Despachos — lá o modal salva e guarda a versão anterior.
+      </p>
+      <div class="dl-texto mt-3 bg-base-200 rounded p-3 max-h-96 overflow-auto"
+           x-text="textoCorpo"></div>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-sm">Fechar</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+  </dialog>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function diligenciasApp() {
+    return {
+        itens: [],
+        lote: {rodando: false, feitos: 0, total: 0, atual: '', parado_por: '', resultados: []},
+        carregando: false,
+        nPendentes: 0,
+        nMarcados: 0,
+        textoTitulo: '',
+        textoCorpo: '',
+        _timer: null,
+
+        init() {
+            this.carregar();
+        },
+
+        async carregar() {
+            this.carregando = true;
+            try {
+                const r = await fetch('/api/diligencias');
+                const d = await r.json();
+                this.itens = d.itens || [];
+                this.lote = d.lote || this.lote;
+                this.nPendentes = d.n_pendentes || 0;
+                this.nMarcados = d.n_marcados || 0;
+                this._acompanhar();
+            } catch (e) {
+                showToast('Erro ao ler a fila: ' + e.message, 'error');
+            } finally {
+                this.carregando = false;
+            }
+        },
+
+        /* Enquanto o lote roda, recarrega sozinho; parou, para de perguntar. */
+        _acompanhar() {
+            if (this.lote.rodando && !this._timer) {
+                this._timer = setInterval(() => this.carregar(), 4000);
+            } else if (!this.lote.rodando && this._timer) {
+                clearInterval(this._timer);
+                this._timer = null;
+            }
+        },
+
+        async marcar(it, marcado) {
+            const r = await fetch('/api/diligencias/' + it.id + '/marcar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({marcado: marcado}),
+            });
+            const d = await r.json();
+            if (!d.ok) showToast(d.erro || 'não consegui marcar', 'error');
+            this.carregar();
+        },
+
+        async marcarTodos(marcado) {
+            await fetch('/api/diligencias/marcar-todos', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({marcado: marcado}),
+            });
+            this.carregar();
+        },
+
+        async visibilidade(it, visivel) {
+            const r = await fetch('/api/diligencias/' + it.id + '/visibilidade', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({visivel: visivel}),
+            });
+            const d = await r.json();
+            if (!d.ok) showToast(d.erro || 'não consegui mudar', 'error');
+            this.carregar();
+        },
+
+        async remover(it) {
+            if (!confirm('Tirar "' + it.titulo + '" da fila?\n\n' +
+                         'O arquivo continua no PAJ; só sai desta lista.')) return;
+            await fetch('/api/diligencias/' + it.id, {method: 'DELETE'});
+            this.carregar();
+        },
+
+        async limparAnexados() {
+            await fetch('/api/diligencias/limpar-anexados', {method: 'POST'});
+            this.carregar();
+        },
+
+        async verTexto(it) {
+            this.textoTitulo = it.paj + ' — ' + it.titulo;
+            this.textoCorpo = 'carregando…';
+            document.getElementById('dlg-texto').showModal();
+            try {
+                const r = await fetch('/files/' + it.paj_norm + '/' + encodeURI(it.arquivo));
+                this.textoCorpo = await r.text();
+            } catch (e) {
+                this.textoCorpo = 'não consegui ler o arquivo: ' + e.message;
+            }
+        },
+
+        /* GRAVA no SISDPU. O confirm lista PAJ por PAJ: movimentação gravada
+           não volta atrás, e é aqui que se vê documento no PAJ errado antes
+           de ele existir. */
+        async anexar(ensaio) {
+            const marcados = this.itens.filter(
+                i => i.marcado && i.status !== 'anexado' && i.existe);
+            if (!marcados.length) return;
+
+            const linhas = marcados.map(
+                i => '  • ' + i.paj + ' (' + i.assistido + ') — ' +
+                     (i.tipo === 'despacho' ? 'despacho' : 'peça') + ': ' + i.titulo);
+            const publicos = marcados.filter(i => i.mostrar_na_internet);
+
+            let msg = (ensaio
+                ? 'ENSAIO de ' + marcados.length + ' diligência(s): preenche no SISDPU e PARA antes de gravar.\n\n'
+                : 'Anexar ' + marcados.length + ' diligência(s) no SISDPU?\n\n') +
+                linhas.join('\n') + '\n\n';
+            if (publicos.length && !ensaio) {
+                msg += publicos.length + ' ficará(ão) VISÍVEL(EIS) ao assistido na internet.\n\n';
+            }
+            msg += (ensaio
+                ? 'Nada será gravado. '
+                : 'A movimentação não pode ser removida depois. ') +
+                'Leva cerca de 1 minuto por item e seu login do SISDPU no navegador vai cair.';
+
+            if (!confirm(msg)) return;
+
+            const r = await fetch('/api/diligencias/anexar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids: marcados.map(i => i.id), ensaio: !!ensaio}),
+            });
+            const d = await r.json();
+            if (!d.ok) {
+                showToast(d.erro || 'não consegui iniciar', 'error');
+                return;
+            }
+            showToast((ensaio ? 'Ensaiando ' : 'Enviando ') + d.total +
+                      ' item(ns) no SISDPU…', 'info');
+            this.carregar();
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -44,6 +44,7 @@ IGNORAR = {
     "elaboracao.json",
     "sisdpu.txt",
     "NOTAS.md",
+    "historico.jsonl",
 }
 
 PREFIXOS_DESPACHO = ("despacho",)
@@ -181,6 +182,10 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
     if not PAJS_DIR.exists():
         return []
 
+    # Uma leitura só do arquivo de marcas, fora do laço dos ~300 PAJs.
+    from services import concluidos_service
+    marcas_painel = concluidos_service.mapa()
+
     for pasta in sorted(PAJS_DIR.iterdir()):
         if not _e_pasta_paj(pasta):
             continue
@@ -272,7 +277,19 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
             # ultima visita (snapshot guardado em localStorage). Vide
             # static/js/app.js -> calcularNovidades().
             "max_seq_mov": max_seq_mov,
+            # Marca pessoal do painel, sem efeito no SIS: some da listagem
+            # enquanto nada se mover no PAJ. Vide services/concluidos_service.
+            "concluido_painel": bool(
+                marcas_painel.get(paj_norm)
+                and max_seq_mov <= int(
+                    (marcas_painel[paj_norm] or {}).get("seq_na_conclusao", 0) or 0
+                )
+            ),
         }
+        # "Concluído no painel" tira da lista sem virar a categoria
+        # `concluidos`, que significa outra coisa (o PAJ saiu da caixa no SIS).
+        if item["concluido_painel"] and not incluir_concluidos:
+            continue
         if esta_concluido:
             concluidos.append(item)
         else:
@@ -288,6 +305,38 @@ def listar_pajs(incluir_concluidos: bool = False) -> list[dict]:
     _list_cache["key"] = chave
     _list_cache["result"] = resultado
     return resultado
+
+
+def abrir_pasta_no_explorer(paj_norm: str) -> dict:
+    """Abre a pasta do PAJ no gerenciador de arquivos do sistema.
+
+    Seguranca: so' abre dentro de PAJS_DIR. O `paj_norm` ja' vem validado pelo
+    tipo `PajNorm` da rota, mas a checagem de containment fica aqui tambem —
+    esta funcao expoe o sistema de arquivos, entao nao confia no chamador.
+    """
+    import subprocess
+    import sys
+
+    pasta = (PAJS_DIR / paj_norm).resolve()
+    try:
+        pasta.relative_to(PAJS_DIR.resolve())
+    except ValueError:
+        return {"ok": False, "erro": "caminho fora da pasta de PAJs"}
+    if not pasta.is_dir():
+        return {"ok": False, "erro": f"pasta não encontrada: {pasta}"}
+
+    try:
+        if sys.platform == "win32":
+            # `explorer` devolve codigo != 0 mesmo quando abre — nao checar rc.
+            subprocess.Popen(["explorer", str(pasta)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(pasta)])
+        else:
+            subprocess.Popen(["xdg-open", str(pasta)])
+    except Exception as e:
+        return {"ok": False, "erro": f"{type(e).__name__}: {e}", "caminho": str(pasta)}
+
+    return {"ok": True, "caminho": str(pasta)}
 
 
 def ler_paj(paj_norm: str) -> dict | None:
@@ -416,6 +465,74 @@ def ler_arquivo(paj_norm: str, caminho_relativo: str) -> tuple[Path | None, str]
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
     return arquivo, content_types.get(ext, "application/octet-stream")
+
+
+def salvar_texto_peca(paj_norm: str, caminho_relativo: str, conteudo: str) -> dict:
+    """Grava a edicao manual de uma peca em texto, feita pelo Defensor na UI.
+
+    Travas, nesta ordem:
+      1. containment — o arquivo tem que ficar dentro da pasta do PAJ;
+      2. so' .txt e .md — nada de sobrescrever PDF, DOCX ou metadata.json;
+      3. so' a RAIZ do PAJ — `pecas/` guarda anexo baixado do SISDPU e OCR,
+         que sao copia do processo e nao podem ser alterados aqui;
+      4. o arquivo tem que existir — esta rota edita, nao cria;
+      5. backup da versao anterior em `_versoes/`, porque o conteudo e' peca
+         juridica e um Ctrl+A acidental nao pode ser irreversivel.
+
+    Retorna {"ok": bool, "erro": str, "backup": str, "bytes": int}.
+    """
+    pasta = PAJS_DIR / paj_norm
+    arquivo = pasta / caminho_relativo
+
+    try:
+        rel = arquivo.resolve().relative_to(pasta.resolve())
+    except ValueError:
+        return {"ok": False, "erro": "caminho fora da pasta do PAJ"}
+
+    if arquivo.suffix.lower() not in (".txt", ".md"):
+        return {"ok": False, "erro": "só arquivos .txt e .md podem ser editados"}
+
+    if len(rel.parts) != 1:
+        return {
+            "ok": False,
+            "erro": "só as peças geradas (na raiz do PAJ) podem ser editadas; "
+                    "anexos e OCR em pecas/ são cópia do processo",
+        }
+
+    if arquivo.name in IGNORAR:
+        return {"ok": False, "erro": f"{arquivo.name} é arquivo de controle do painel"}
+
+    if not arquivo.exists() or not arquivo.is_file():
+        return {"ok": False, "erro": "arquivo não encontrado"}
+
+    import datetime as _dt
+
+    backup_nome = ""
+    try:
+        versoes = pasta / "_versoes"
+        versoes.mkdir(exist_ok=True)
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        destino = versoes / f"{arquivo.stem}.{stamp}{arquivo.suffix}"
+        destino.write_text(ler_texto_robusto(arquivo), encoding="utf-8", newline="\n")
+        backup_nome = destino.name
+    except Exception as e:
+        # Sem backup nao grava: perder a versao anterior de uma peca e' pior
+        # do que recusar a edicao.
+        return {"ok": False, "erro": f"não consegui salvar o backup: {e}"}
+
+    try:
+        # Normaliza para o padrao do resto do pipeline: UTF-8 sem BOM e LF.
+        # O BOM importa: `ler_texto_robusto` le em UTF-8 puro e devolve o
+        # U+FEFF como caractere, que chega invisivel ao textarea. Sem retirar
+        # aqui, uma edicao na primeira linha podia deixar esse caractere solto
+        # no meio do texto e reaparecer no DOCX.
+        texto = (conteudo or "").replace("\r\n", "\n").lstrip("﻿")
+        arquivo.write_text(texto, encoding="utf-8", newline="\n")
+    except Exception as e:
+        return {"ok": False, "erro": f"falha ao gravar: {e}"}
+
+    invalidar_cache_listagem()
+    return {"ok": True, "erro": "", "backup": backup_nome, "bytes": len(texto.encode("utf-8"))}
 
 
 def ler_texto_robusto(path: Path) -> str:

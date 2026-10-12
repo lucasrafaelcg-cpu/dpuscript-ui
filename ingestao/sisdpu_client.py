@@ -11,12 +11,14 @@ Credenciais vem das env vars SISDPU_USERNAME e SISDPU_PASSWORD (carregadas do
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import logging
 import os
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from playwright.async_api import Browser, Page, async_playwright
 from playwright.async_api import TimeoutError as PWTimeoutError
@@ -46,26 +48,121 @@ _page: Page | None = None
 
 
 # JS que espera o PrimeFaces terminar todos os AJAX pendentes.
-_WAIT_PF_AJAX = """
-() => new Promise((resolve) => {
-    const check = () => {
-        if (typeof PrimeFaces === 'undefined'
-            || !PrimeFaces.ajax
-            || !PrimeFaces.ajax.Queue
-            || PrimeFaces.ajax.Queue.isEmpty()) {
-            resolve(true);
-        } else {
-            setTimeout(check, 100);
-        }
-    };
-    check();
-})
+# Predicado para `wait_for_function`: verdadeiro quando nao ha AJAX PrimeFaces
+# pendente. O Playwright reavalia sozinho ate ser verdadeiro (ou estourar o
+# timeout), entao aqui NAO se usa Promise/setTimeout — basta a condicao.
+_PF_AJAX_OCIOSO = """
+() => typeof PrimeFaces === 'undefined'
+      || !PrimeFaces.ajax
+      || !PrimeFaces.ajax.Queue
+      || PrimeFaces.ajax.Queue.isEmpty()
 """
 
 
 def _sel(element_id: str) -> str:
     """Gera seletor CSS para IDs JSF (que contem ':')."""
     return f'[id="{element_id}"]'
+
+
+# Ordem de preferencia de navegador para o Playwright.
+#
+# O Chromium EMPACOTADO vem primeiro de proposito: com ele o flag
+# `--disable-features=PDFViewerUpdate,PdfUnseasoned` realmente faz os PDFs
+# virarem download (evento `download`), que e' como `listar_arquivos_paj`
+# captura os anexos. No Chrome/Edge instalados o PDF abre no visualizador
+# interno e o download FALHA — por isso eles nao podem ser o padrao.
+#
+# Chrome/Edge entram apenas como rede de seguranca: o binario empacotado fica
+# em %LOCALAPPDATA%\ms-playwright, nao e' assinado, e o Smart App Control do
+# Windows 11 (VerifiedAndReputablePolicyState=1 nesta maquina) as vezes o
+# bloqueia — tipicamente logo depois de a politica ser reaplicada, o que
+# invalida o veredito de reputacao em cache. O Playwright traduz esse bloqueio
+# na mensagem enganosa "Executable doesn't exist" (seu `canAccessFile()`
+# engole o erro real). Nesse cenario, cair para o Chrome assinado deixa a
+# sincronizacao de movimentacoes/prazos funcionar; so' o download de anexos
+# fica prejudicado, e o log avisa disso.
+_CANAIS_PREFERIDOS: tuple[str | None, ...] = (None, "chrome", "msedge")
+
+# Canal que funcionou por ultimo — tentado primeiro nas chamadas seguintes,
+# pra nao pagar o custo de descobrir de novo a cada launch.
+_INDEFINIDO = object()
+_canal_em_uso: Any = _INDEFINIDO
+
+
+def _ordem_de_canais() -> list[str | None]:
+    """Canais a tentar, sempre na ordem de _CANAIS_PREFERIDOS.
+
+    NAO memoriza o canal que funcionou por ultimo de proposito: o empacotado
+    (unico que baixa anexos corretamente) tem que ser retentado sempre, senao
+    um unico bloqueio do Smart App Control deixaria o painel preso no Chrome
+    — e sem download de anexos — mesmo depois de o bloqueio passar.
+    """
+    forcado = os.getenv("PLAYWRIGHT_CHANNEL", "").strip()
+    if forcado:
+        # "chromium" (ou "bundled") = usar explicitamente o Chromium empacotado
+        return [None] if forcado.lower() in ("chromium", "bundled", "none") else [forcado]
+    return list(_CANAIS_PREFERIDOS)
+
+
+def _memorizar_canal(canal: str | None, rodada: int, houve_falha: bool) -> None:
+    """Registra o canal em uso. Avisa alto quando cai para um substituto,
+    porque nesse modo o download de anexos nao funciona."""
+    global _canal_em_uso
+    _canal_em_uso = canal
+    if canal is None:
+        if houve_falha:
+            _log.warning("playwright.launch: Chromium empacotado OK na rodada %d", rodada + 1)
+        else:
+            _log.info("playwright.launch: Chromium empacotado")
+        return
+    _log.warning(
+        "playwright.launch: Chromium empacotado indisponivel (provavel bloqueio do "
+        "Smart App Control) — usando '%s' como substituto. ATENCAO: neste modo o "
+        "DOWNLOAD DE ANEXOS falha (PDF abre no visualizador em vez de baixar); "
+        "movimentacoes/prazos/triagem funcionam normalmente.",
+        canal,
+    )
+
+
+def _diagnosticar_falha_launch(erro: Exception, rodada: int, canal: str | None) -> None:
+    """Loga diagnostico concreto quando `chromium.launch()` falha.
+
+    O driver Node do Playwright reporta QUALQUER falha de acesso ao
+    executavel (permissao negada, bloqueio por politica de seguranca,
+    antivirus etc.) com a mesma mensagem generica "Executable doesn't exist"
+    (ver `canAccessFile()`, que engole o erro real). Aqui chamamos
+    `os.stat()` no MESMO arquivo, no MESMO instante, e registramos a excecao
+    de verdade — inclusive o errno — pra distinguir "arquivo ausente" de
+    "acesso bloqueado". Note que `Path.exists()` NAO serve pra isso: ele
+    tambem retorna False quando o stat falha por permissao.
+    """
+    msg = str(erro)
+    primeira = msg.splitlines()[0] if msg else ""
+    detalhes = [f"rodada {rodada + 1} canal={canal or 'chromium-empacotado'}",
+                f"{type(erro).__name__}: {primeira}"]
+
+    m = re.search(r"Executable doesn't exist at (.+?)(?:\r?\n|$)", msg)
+    if m:
+        p = Path(m.group(1).strip())
+        try:
+            st = os.stat(p)
+            detalhes.append(
+                f"os.stat OK (arquivo PRESENTE): tamanho={st.st_size} "
+                f"mtime={_dt.datetime.fromtimestamp(st.st_mtime).isoformat()}"
+            )
+            try:
+                with open(p, "rb") as f:
+                    f.read(4)
+                detalhes.append("leitura OK -> bloqueio e' de EXECUCAO, nao de leitura")
+            except OSError as e_open:
+                detalhes.append(f"leitura FALHOU: {type(e_open).__name__} errno={e_open.errno}: {e_open}")
+        except OSError as e_stat:
+            detalhes.append(
+                f"os.stat FALHOU: {type(e_stat).__name__} errno={e_stat.errno} "
+                f"winerror={getattr(e_stat, 'winerror', None)}: {e_stat}"
+            )
+
+    _log.warning("playwright.launch falhou — %s", " | ".join(detalhes))
 
 
 async def _get_page() -> Page:
@@ -86,16 +183,42 @@ async def _get_page() -> Page:
             _page = None
             _browser = None
 
-    if _playwright is None:
-        _playwright = await async_playwright().start()
+    # Tenta os canais em ordem de confiabilidade (ver _CANAIS_PREFERIDOS), com
+    # backoff entre rodadas caso TODOS falhem — cobre bloqueio transitorio.
+    canais = _ordem_de_canais()
+    ESPERAS = [2, 5, 10]  # backoff entre rodadas completas de canais
+    ultimo_erro: Exception | None = None
 
-    _browser = await _playwright.chromium.launch(
-        headless=True,
-        args=[
-            # Desabilita o PDF viewer interno do Chromium: PDFs viram download
-            "--disable-features=PDFViewerUpdate,PdfUnseasoned",
-        ],
-    )
+    for rodada in range(len(ESPERAS) + 1):
+        for canal in canais:
+            if _playwright is None:
+                _playwright = await async_playwright().start()
+            try:
+                _browser = await _playwright.chromium.launch(
+                    headless=True,
+                    channel=canal,  # None => Chromium empacotado do Playwright
+                    args=[
+                        # Desabilita o PDF viewer interno: PDFs viram download
+                        "--disable-features=PDFViewerUpdate,PdfUnseasoned",
+                    ],
+                )
+                _memorizar_canal(canal, rodada, ultimo_erro is not None)
+                break
+            except Exception as e:
+                ultimo_erro = e
+                _diagnosticar_falha_launch(e, rodada, canal)
+                with contextlib.suppress(Exception):
+                    await _playwright.stop()
+                _playwright = None
+                _browser = None
+        if _browser is not None:
+            break
+        if rodada < len(ESPERAS):
+            await asyncio.sleep(ESPERAS[rodada])
+
+    if _browser is None:
+        raise ultimo_erro
+
     context = await _browser.new_context(
         viewport={"width": 1280, "height": 1024},
         accept_downloads=True,
@@ -104,12 +227,46 @@ async def _get_page() -> Page:
     return _page
 
 
+# Sessao logada de verdade? Exige o titulo da unidade e o botao Pesquisar do
+# header — ambos presentes em toda tela autenticada do SIS. Usado pelas duas
+# tentativas de `buscar_paj_global` (sessao reusada e sessao nova).
+_JS_SESSAO_VIVA = """() => {
+            const corpo = (document.body.innerText || '').toLowerCase();
+            const temUnidade = corpo.includes('unidade dpu');
+            const cands = document.querySelectorAll(
+                'button, input[type="submit"], input[type="button"], input[type="image"], a, span[role="button"]'
+            );
+            let temBtnPesquisar = false;
+            for (const el of cands) {
+                const txt = ((el.textContent || el.value || el.title || el.getAttribute('aria-label') || '') + '').trim().toLowerCase();
+                if (txt === 'pesquisar' || txt === 'buscar' || txt.includes('pesquis')) {
+                    temBtnPesquisar = true; break;
+                }
+            }
+            return {
+                ok: temUnidade && temBtnPesquisar,
+                temUnidade, temBtnPesquisar,
+                trecho_inicio_body: corpo.substring(0, 200)
+            };
+        }"""
+
+
 async def _wait_pf_ajax(page: Page, timeout: int = 10000) -> None:
-    """Espera o PrimeFaces terminar AJAX pendente, com timeout de seguranca."""
+    """Espera o PrimeFaces terminar o AJAX pendente, com timeout de seguranca.
+
+    Usa `wait_for_function` (que ACEITA timeout) em vez de `evaluate`. A versao
+    anterior chamava `page.evaluate(js, timeout=...)`, mas `evaluate` so' aceita
+    `(expression, arg)`: o kwarg levantava TypeError em TODA chamada, caia no
+    `except` e dormia 1s as cegas. Ou seja, nunca esperava o AJAX de fato —
+    era lentidao (1s fixo por chamada) e risco de ler a pagina antes de ela
+    terminar de atualizar. Agora retorna assim que a fila esvazia (ms).
+    """
     try:
-        await page.evaluate(_WAIT_PF_AJAX, timeout=timeout)
+        await page.wait_for_function(_PF_AJAX_OCIOSO, timeout=timeout)
     except Exception:
-        await page.wait_for_timeout(1000)
+        # Fila nunca esvaziou dentro do timeout: segue em frente, como antes.
+        # Quem chama tem verificacao propria do conteudo esperado.
+        pass
 
 
 async def _login() -> None:
@@ -264,6 +421,50 @@ def parse_item_caixa(item_raw: str) -> dict | None:
     }
 
 
+MAX_RETORNOS_EXPANDIR = 3
+
+
+async def _expandir_atendimentos_retorno(page) -> int:
+    """Expande as linhas "Atendimento de retorno" (rowExpansion do PrimeFaces).
+
+    O TEOR CERTIFICADO do retorno (ex.: "Assistido respondeu o seguinte: ...")
+    NAO vem no DOM inicial: o SISDPU so' o carrega, via ajax, quando se clica no
+    toggle da linha. Sem expandir, a movimentacao de atendimento de retorno
+    chega praticamente vazia e a analise nao tem como saber o que o assistido
+    trouxe ou respondeu — era a causa das analises fracas nesse fluxo.
+
+    Cada clique e' um ajax; expandimos apenas os N retornos MAIS RECENTES (sao
+    os que explicam o retorno a caixa). A tabela vem do mais novo para o mais
+    antigo e o toggle fechado tem a classe `ui-icon-circle-triangle-e` (ao abrir
+    vira `...-s`); como sempre clicamos no PRIMEIRO ainda fechado, N cliques
+    abrem exatamente os N mais recentes.
+
+    Retorna quantas linhas foram expandidas. Falhas sao silenciosas — expandir
+    e' um extra: se nao der, a sincronizacao segue com o texto normal.
+    """
+    expandidas = 0
+    try:
+        for _ in range(MAX_RETORNOS_EXPANDIR):
+            tog = page.locator(
+                '[id="detalhamentoForm:tableMovimentacoes"] '
+                'div.ui-row-toggler.ui-icon-circle-triangle-e'
+            ).first
+            if await tog.count() == 0:
+                break
+            try:
+                await tog.click(timeout=3000)
+            except Exception:
+                break
+            await _wait_pf_ajax(page, timeout=8000)
+            await page.wait_for_timeout(300)
+            expandidas += 1
+    except Exception:
+        pass
+    if expandidas:
+        _log.info("atendimento de retorno: %d linha(s) expandida(s)", expandidas)
+    return expandidas
+
+
 async def movimentacoes_paj(numero: str, ano: str, unidade: str = "44") -> dict:
     """Retorna dados completos do PAJ incluindo MOVIMENTACOES com URLs de peca.
 
@@ -276,10 +477,24 @@ async def movimentacoes_paj(numero: str, ano: str, unidade: str = "44") -> dict:
         f"{SISDPU_URL}/pages/caixaentrada/caixaEntrada.xhtml",
         wait_until="domcontentloaded",
     )
-    await page.wait_for_timeout(2000)
     await _wait_pf_ajax(page, timeout=10000)
 
     paj_texto = f"{ano}/{unidade.zfill(3)}-{numero}"
+
+    # Espera o LINK do PAJ existir, em vez de dormir 2s no escuro. A tabela da
+    # caixa e' preenchida por ajax: o que interessa e' o link estar la'.
+    # Timeout curto porque o PAJ pode legitimamente nao estar na caixa — nesse
+    # caso o codigo abaixo trata (fallback por numero e, depois, erro).
+    with contextlib.suppress(Exception):
+        await page.wait_for_function(
+            """(alvo) => {
+                for (const a of document.querySelectorAll('a'))
+                    if ((a.textContent || '').includes(alvo)) return true;
+                return false;
+            }""",
+            arg=paj_texto,
+            timeout=8000,
+        )
 
     clicked = await page.evaluate(
         """
@@ -312,7 +527,20 @@ async def movimentacoes_paj(numero: str, ano: str, unidade: str = "44") -> dict:
         return {"erro": f"PAJ {paj_texto} não encontrado na caixa de entrada"}
 
     await _wait_pf_ajax(page, timeout=15000)
-    await page.wait_for_timeout(3000)
+
+    # Espera o DETALHAMENTO estar montado, em vez de dormir 3s. O marcador e' a
+    # tabela de movimentacoes do formulario de detalhamento — e' dela que a
+    # extracao abaixo depende, e e' o ultimo pedaco a chegar.
+    # Se nao aparecer, segue: a extracao valida o conteudo e o chamador trata.
+    with contextlib.suppress(Exception):
+        await page.wait_for_selector(
+            '[id="detalhamentoForm:tableMovimentacoes"]',
+            state="attached",
+            timeout=15000,
+        )
+    await _wait_pf_ajax(page, timeout=10000)
+
+    await _expandir_atendimentos_retorno(page)
 
     dados = await page.evaluate(
         """
@@ -367,7 +595,11 @@ async def movimentacoes_paj(numero: str, ano: str, unidade: str = "44") -> dict:
                     const dataHora = (cells[2]?.textContent || '').trim();
                     const movimentacao = (cells[3]?.textContent || '').trim();
                     const fases = (cells[4]?.textContent || '').trim();
-                    const textoCompleto = cells[5]?.textContent || '';
+                    // innerText preserva a quebra de paragrafo dos <br>/<p> da
+                    // celula; textContent colava os paragrafos
+                    // ("...curadora especial.A ultima movimentacao...").
+                    const textoCompleto = (cells[5]?.innerText
+                                           || cells[5]?.textContent || '');
                     const usuario = (cells[6]?.textContent || '').trim();
 
                     if (seq && /^\\d{1,4}$/.test(seq)
@@ -384,12 +616,31 @@ async def movimentacoes_paj(numero: str, ano: str, unidade: str = "44") -> dict:
                             u.includes('decisao') ||
                             u.endsWith('.pdf')
                         );
+                        // Teor certificado do "Atendimento de retorno": fica na
+                        // linha de expansao (tr.ui-expanded-row-content) logo
+                        // abaixo da linha de dados, e so' existe se o toggle
+                        // tiver sido aberto (ver _expandir_atendimentos_retorno).
+                        let certificado = '';
+                        const prox = tr.nextElementSibling;
+                        if (prox && (prox.className || '').indexOf('ui-expanded-row-content') !== -1) {
+                            certificado = (prox.innerText || '').replace(/\\s+/g, ' ').trim();
+                        }
+                        const LIMITE_TEOR = 20000;
+                        let descFinal = textoCompleto.substring(0, LIMITE_TEOR);
+                        if (textoCompleto.length > LIMITE_TEOR) {
+                            descFinal += '\\n[TEOR CORTADO em ' + LIMITE_TEOR
+                                + ' caracteres - abra a movimentacao no SISDPU]';
+                        }
+                        if (certificado) {
+                            descFinal += '\\n[ATENDIMENTO DE RETORNO - certificado]: ' + certificado;
+                        }
                         movs.push({
                             seq: seq,
                             data: dataHora,
                             movimentacao: movimentacao,
                             fases: fases,
-                            descricao: textoCompleto.substring(0, 3000),
+                            descricao: descFinal,
+                            certificado: certificado,
                             links_decisao: links_decisao,
                             usuario: usuario
                         });
@@ -558,58 +809,35 @@ async def buscar_paj_global(
     paj_texto = f"{ano}/{unidade.zfill(3)}-{numero}"
     _log.info("INICIO termo='%s'", paj_texto)
 
-    # Forca sessao fresca — fecha qualquer browser/page residual e refaz login
-    # do zero. Garante estado limpo (sem sessao expirada silenciosamente, sem
-    # pagina morta de uma execucao anterior).
-    _log.info("forcando nova sessao (fechar+login)...")
-    with contextlib.suppress(Exception):
-        await fechar()
-    await _ensure_logged_in()
-    page = await _get_page()
-    _log.info("logado, url pos-login: %s", page.url)
+    # REUSA a sessao existente. A versao anterior fechava o browser e refazia o
+    # login em TODA chamada "pra garantir estado limpo" — mas o login do SIS
+    # custa 22-25s medidos, pagos mesmo com a sessao perfeitamente viva. A
+    # garantia continua: logo abaixo ja' existe verificacao de sessao viva e,
+    # se ela reprovar, ai' sim forcamos sessao nova e tentamos de novo. Ou seja,
+    # o caminho lento passou a ser excecao em vez de regra.
+    async def _abrir_caixa_e_validar(forcar_sessao_nova: bool):
+        if forcar_sessao_nova:
+            _log.info("forcando nova sessao (fechar+login)...")
+            with contextlib.suppress(Exception):
+                await fechar()
+        await _ensure_logged_in()
+        pg = await _get_page()
+        await pg.goto(
+            f"{SISDPU_URL}/pages/caixaentrada/caixaEntrada.xhtml",
+            wait_until="domcontentloaded",
+        )
+        await _wait_pf_ajax(pg, timeout=10000)
+        _log.info("caixa carregada url=%s", pg.url)
+        if "login" in pg.url.lower():
+            return pg, {"ok": False, "motivo": "redirecionado para tela de login"}
+        viva = await pg.evaluate(_JS_SESSAO_VIVA)
+        return pg, viva
 
-    await page.goto(
-        f"{SISDPU_URL}/pages/caixaentrada/caixaEntrada.xhtml",
-        wait_until="domcontentloaded",
-    )
-    await page.wait_for_timeout(1500)
-    await _wait_pf_ajax(page, timeout=10000)
-    _log.info("caixa carregada url=%s", page.url)
+    page, sessao_viva = await _abrir_caixa_e_validar(forcar_sessao_nova=False)
+    if not sessao_viva.get("ok"):
+        _log.info("sessao reusada nao serviu (%s) — refazendo login", sessao_viva)
+        page, sessao_viva = await _abrir_caixa_e_validar(forcar_sessao_nova=True)
 
-    # ---------- Verificacoes de sessao viva ----------
-    # 1) URL nao caiu pra tela de login (redirect silencioso por sessao expirada).
-    if "login" in page.url.lower():
-        msg = "apos login, ainda na tela de login — sessao nao autenticada"
-        with contextlib.suppress(Exception):
-            pasta = await _dump_debug_paj(page, paj_texto, msg)
-            _log.warning("FIM(login-nao-efetivo) debug salvo em: %s", pasta)
-        return {"erro": msg}
-
-    # 2) Estamos de fato na area logada: precisa ter o botao "Pesquisar" do
-    #    header (visivel em todas as telas autenticadas) E o titulo da unidade
-    #    ("Unidade DPU - ..."). Se nao aparecerem, a sessao esta "morta"
-    #    (logado mas sem direitos / popup bloqueando / pagina parcial).
-    sessao_viva = await page.evaluate(
-        """() => {
-            const corpo = (document.body.innerText || '').toLowerCase();
-            const temUnidade = corpo.includes('unidade dpu');
-            const cands = document.querySelectorAll(
-                'button, input[type="submit"], input[type="button"], input[type="image"], a, span[role="button"]'
-            );
-            let temBtnPesquisar = false;
-            for (const el of cands) {
-                const txt = ((el.textContent || el.value || el.title || el.getAttribute('aria-label') || '') + '').trim().toLowerCase();
-                if (txt === 'pesquisar' || txt === 'buscar' || txt.includes('pesquis')) {
-                    temBtnPesquisar = true; break;
-                }
-            }
-            return {
-                ok: temUnidade && temBtnPesquisar,
-                temUnidade, temBtnPesquisar,
-                trecho_inicio_body: corpo.substring(0, 200)
-            };
-        }"""
-    )
     _log.info("sessao_viva=%s", sessao_viva)
     if not sessao_viva.get("ok"):
         msg = (
@@ -760,14 +988,58 @@ async def buscar_paj_global(
                 tem_header = True
 
             if tem_header:
-                # Popup funcionou — usa ele direto
                 with contextlib.suppress(Exception):
                     await _wait_pf_ajax(popup_capturado, timeout=10000)
                 await popup_capturado.wait_for_timeout(500)
-                _log.info(
-                    "  popup OK url=%s", popup_capturado.url,
-                )
-                page_detalhe = popup_capturado
+                _log.info("  popup OK url=%s", popup_capturado.url)
+
+                # O detalhamento renderizou no POPUP, mas todo o resto do
+                # cliente (`listar_arquivos_paj`, `baixar_anexo_por_indice`)
+                # opera sobre `_get_page()`, que e' a JANELA PRINCIPAL — ainda
+                # na caixa de entrada. Deixar o detalhamento so' no popup fazia
+                # o download de anexos falhar em silencio na sincronizacao via
+                # busca global: `listar_arquivos_paj` procurava o botao
+                # "Arquivos" na caixa, achava so' o menu "Banco de Arquivos -
+                # CCRs", e o sync gravava o PAJ com zero anexos.
+                #
+                # Entao migra pra janela principal, o que e' seguro porque a URL
+                # do detalhamento e' stateless (so' depende do cookie de sessao),
+                # como a ETAPA 2 abaixo ja' explorava.
+                url_detalhe = popup_capturado.url
+                migrou = False
+                if "detalhamentoProcesso" in url_detalhe:
+                    try:
+                        await page.goto(
+                            url_detalhe, wait_until="domcontentloaded", timeout=20000,
+                        )
+                        with contextlib.suppress(Exception):
+                            await _wait_pf_ajax(page, timeout=15000)
+                        await page.wait_for_function(
+                            js_detect_header, timeout=15000, polling=250,
+                        )
+                        migrou = True
+                    except Exception as e:
+                        _log.warning(
+                            "  migracao do popup pra janela principal falhou: %s: %s",
+                            type(e).__name__, e,
+                        )
+
+                if migrou:
+                    with contextlib.suppress(Exception):
+                        await popup_capturado.close()
+                    _log.info(
+                        "  detalhamento na janela principal url=%s", page.url,
+                    )
+                    page_detalhe = page
+                else:
+                    # Sem migracao, o PAJ abre e os dados de cabecalho/movimentacao
+                    # sao extraidos, mas os anexos NAO poderao ser baixados.
+                    # Registrado como WARNING pra nao virar falha silenciosa.
+                    _log.warning(
+                        "  detalhamento ficou SO' no popup: os anexos deste PAJ "
+                        "nao poderao ser listados nem baixados nesta passagem",
+                    )
+                    page_detalhe = popup_capturado
                 sucesso = True
                 break
 
@@ -904,6 +1176,10 @@ async def buscar_paj_global(
     global _page
     _page = page_detalhe
 
+    # Mesmo tratamento do fluxo pela caixa: abre as linhas de "Atendimento de
+    # retorno" para o teor certificado entrar no DOM antes da extracao.
+    await _expandir_atendimentos_retorno(page_detalhe)
+
     # Extrai os campos do cabecalho do detalhamento. Estrategia hibrida:
     # (1) DOM-based para label/valor (mais robusto que regex no innerText)
     # (2) regex residual para padroes posicionais (numero CNJ, linha PAJ).
@@ -1016,17 +1292,39 @@ async def buscar_paj_global(
                     const dataHora = (cells[2]?.textContent || '').trim();
                     const movimentacao = (cells[3]?.textContent || '').trim();
                     const fases = (cells[4]?.textContent || '').trim();
-                    const textoCompleto = cells[5]?.textContent || '';
+                    // innerText preserva a quebra de paragrafo dos <br>/<p> da
+                    // celula; textContent colava os paragrafos
+                    // ("...curadora especial.A ultima movimentacao...").
+                    const textoCompleto = (cells[5]?.innerText
+                                           || cells[5]?.textContent || '');
                     const usuario = (cells[6]?.textContent || '').trim();
 
                     if (seq && /^\\d{1,4}$/.test(seq)
                         && (textoCompleto.trim() || movimentacao)) {
+                        // Teor certificado do "Atendimento de retorno" — mesma
+                        // logica de movimentacoes_paj (linha de expansao logo
+                        // abaixo da linha de dados).
+                        let certificado = '';
+                        const prox = tr.nextElementSibling;
+                        if (prox && (prox.className || '').indexOf('ui-expanded-row-content') !== -1) {
+                            certificado = (prox.innerText || '').replace(/\\s+/g, ' ').trim();
+                        }
+                        const LIMITE_TEOR = 20000;
+                        let descFinal = textoCompleto.substring(0, LIMITE_TEOR);
+                        if (textoCompleto.length > LIMITE_TEOR) {
+                            descFinal += '\\n[TEOR CORTADO em ' + LIMITE_TEOR
+                                + ' caracteres - abra a movimentacao no SISDPU]';
+                        }
+                        if (certificado) {
+                            descFinal += '\\n[ATENDIMENTO DE RETORNO - certificado]: ' + certificado;
+                        }
                         movs.push({
                             seq: seq,
                             data: dataHora,
                             movimentacao: movimentacao,
                             fases: fases,
-                            descricao: textoCompleto.substring(0, 3000),
+                            descricao: descFinal,
+                            certificado: certificado,
                             links_decisao: [],
                             usuario: usuario
                         });
@@ -1215,6 +1513,12 @@ async def listar_arquivos_paj(debug: bool = False) -> dict:
 
     # Aguarda AJAX + eventual navegacao (o link "Arquivos" navega para outra tela).
     # Tenta networkidle primeiro; se falhar, cai pra wait_pf_ajax + sleep.
+    #
+    # NAO trocar por espera condicional generica aqui. Tentei esperar por
+    # "tabela visivel com botao Visualizar" e a condicao casava com uma tabela
+    # ANTERIOR ao dialogo de arquivos: a lista vinha truncada (um PAJ com 96
+    # anexos passou a reportar 4). Anexo faltando = documento invisivel para a
+    # analise, entao aqui a espera generosa fica de proposito.
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except Exception:
@@ -1503,29 +1807,96 @@ async def baixar_anexo_por_indice(row_index: int, destino):
         except Exception:
             pass
 
-    try:
-        async with page.expect_event("download", timeout=60000) as dl_info:
-            await page.click('[data-dpu-pick="1"]')
-        download = await dl_info.value
-
-        # Detecta extensao a partir do suggested_filename (Content-Disposition do SISDPU)
-        sugerido = (download.suggested_filename or "").strip()
-        ext_sugerida = _Path(sugerido).suffix.lower() if sugerido else ""
-        # Nomes tipicos do SISDPU: "documento.pdf", "foto.jpg", "contrato.docx"
-        if not ext_sugerida:
-            ext_sugerida = ".bin"
-
+    def _destino_com_ext(nome_sugerido: str):
+        """Resolve a extensao final a partir do nome sugerido pelo SISDPU."""
+        ext = _Path(nome_sugerido).suffix.lower() if nome_sugerido else ""
+        if not ext:
+            ext = ".bin"
         # Se o destino passado NAO tem extensao (ou tem .bin como placeholder),
         # usa a extensao detectada. Caso contrario respeita o que veio.
         if destino.suffix == "" or destino.suffix.lower() == ".bin":
-            destino_final = destino.with_suffix(ext_sugerida)
-        else:
-            destino_final = destino
+            return destino.with_suffix(ext)
+        return destino
 
-        await download.save_as(str(destino_final))
+    # Captura as URLs REST de download que passarem pela rede. Necessario para
+    # o plano B: em navegadores com visualizador de PDF interno (Chrome/Edge
+    # instalados), clicar em "Visualizar" ABRE o PDF em vez de baixa-lo, e o
+    # evento `download` nunca dispara. Como a URL do SISDPU e' um GET simples
+    # (.../rest/download/<tipo>/<id>/<nome>), da' pra rebuscar os bytes pela
+    # propria sessao do navegador (mesmos cookies) via APIRequestContext.
+    # O listener fica no CONTEXTO, nao na page: o SISDPU pode abrir o arquivo
+    # numa aba nova, e nesse caso a resposta pertence a outra page.
+    urls_rest: list[str] = []
+    contexto = page.context
+
+    def _capturar_url(resp) -> None:
+        if "/rest/download/" in resp.url:
+            urls_rest.append(resp.url)
+
+    baixados: list = []
+
+    def _capturar_download(dl) -> None:
+        baixados.append(dl)
+
+    page.on("download", _capturar_download)
+
+    contexto.on("response", _capturar_url)
+    paginas_antes = set(contexto.pages)
+    try:
+        await page.click('[data-dpu-pick="1"]')
+
+        # Corre os dois caminhos em paralelo e usa o que chegar primeiro, em
+        # vez de esperar o timeout inteiro do evento `download` (que nunca vem
+        # quando o navegador exibe o PDF no visualizador interno).
+        LIMITE_S, PASSO_S = 60, 0.25
+        for _ in range(int(LIMITE_S / PASSO_S)):
+            if baixados or urls_rest:
+                break
+            await asyncio.sleep(PASSO_S)
+
+        # Se so' a URL apareceu, ainda da' uma folga curta para um eventual
+        # evento `download` — ele e' o caminho preferencial por trazer o nome
+        # do arquivo no Content-Disposition.
+        if urls_rest and not baixados:
+            for _ in range(8):
+                await asyncio.sleep(PASSO_S)
+                if baixados:
+                    break
+
+        if baixados:
+            download = baixados[-1]
+            destino_final = _destino_com_ext((download.suggested_filename or "").strip())
+            await download.save_as(str(destino_final))
+        elif urls_rest:
+            url = urls_rest[-1]
+            resp = await page.request.get(url)
+            if not resp.ok:
+                raise RuntimeError(f"refetch HTTP {resp.status}")
+            corpo = await resp.body()
+            if not corpo:
+                raise RuntimeError("refetch devolveu corpo vazio")
+            destino_final = _destino_com_ext(unquote(url.rsplit("/", 1)[-1].split("?")[0]))
+            destino_final.write_bytes(corpo)
+            _log.info(
+                "anexo obtido via refetch da sessao (navegador exibiu o arquivo "
+                "em vez de baixar): %s", destino_final.name,
+            )
+        else:
+            raise PWTimeoutError("nem evento download nem URL REST em 60s")
     except Exception:
         await _limpar_marker()
         return None
+    finally:
+        with contextlib.suppress(Exception):
+            contexto.remove_listener("response", _capturar_url)
+        with contextlib.suppress(Exception):
+            page.remove_listener("download", _capturar_download)
+        # Fecha abas que o visualizador tenha aberto, senao elas se acumulam
+        # ao longo da sincronizacao.
+        for pg in contexto.pages:
+            if pg not in paginas_antes and pg is not page:
+                with contextlib.suppress(Exception):
+                    await pg.close()
 
     await _limpar_marker()
 

@@ -1,7 +1,8 @@
 """Cliente PJe via MNI (Modelo Nacional de Interoperabilidade) — SOMENTE LEITURA.
 
 Espelha o padrao de `sisdpu_client.py`, mas para o webservice SOAP do PJe
-(TRF3 1o grau por padrao — cobre a Vara Federal e o JEF de Osasco).
+(1o grau — endpoint configurado via PJE_MNI_WSDL no .env; default do fork
+original era TRF3/Osasco).
 
 ESCOPO DELIBERADAMENTE RESTRITO A CONSULTA:
     - A unica operacao MNI implementada e' `consultarProcesso` (leitura).

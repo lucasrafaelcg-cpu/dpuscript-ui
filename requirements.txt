@@ -13,3 +13,8 @@ Pillow>=10.0
 
 # Integracao PJe / MNI (consulta processual SOMENTE LEITURA — webservice SOAP)
 zeep>=4.2
+
+# Geracao de DOCX/PDF (gerar_docx.py / gerar_peticao.py no workspace Oficio Geral,
+# via skill formatacao-docx). docx2pdf requer Microsoft Word instalado (Windows).
+python-docx>=1.1
+docx2pdf>=0.1.8

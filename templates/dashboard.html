@@ -92,6 +92,40 @@
           <span class="text-base-content/40 tnum" x-show="!mostrarConcluidos && totalConcluidos > 0" x-text="`(+${totalConcluidos})`"></span>
         </span>
       </label>
+      <!-- Discussao GERAL: conversa nao vinculada a PAJ. Uso principal e' a
+           analise conjunta de varios PAJs (ex.: um oficio para varios casos). -->
+      <button class="btn btn-sm btn-outline gap-2 normal-case"
+              x-data="{ abrindo: false }"
+              :disabled="abrindo"
+              title="Conversar com o Claude sem vincular a um PAJ — análise conjunta de vários PAJs, dúvida geral"
+              @click="abrindo = true;
+                      /* Reabre a conversa geral mais recente; cria uma so' se
+                         nao houver nenhuma — evita acumular conversas vazias a
+                         cada clique. Para comecar outra, use 'Nova conversa'
+                         dentro da propria tela de discussao. */
+                      fetch('/api/chat-livre/paj/GERAL/conversas')
+                      .then(r => r.json())
+                      .then(d => {
+                        var lista = (d && d.conversas) || [];
+                        if (lista.length) { return { id: lista[0].id }; }
+                        return fetch('/api/chat-livre/paj/GERAL/conversas', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ titulo: 'Discussão geral' })
+                        }).then(r => r.json());
+                      })
+                      .then(c => {
+                        if (c && c.id) { window.location.href = '/chat-livre?conv=' + c.id; }
+                        else { abrindo = false; alert('Não consegui abrir a discussão geral.'); }
+                      })
+                      .catch(e => { abrindo = false; alert('Erro: ' + e); })">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v8.269Z"></path>
+        </svg>
+        <span x-text="abrindo ? 'abrindo...' : 'Discussão'"></span>
+      </button>
+
       <div class="join">
         <button class="join-item btn btn-primary btn-sm gap-2 normal-case" onclick="sincronizarCaixa(true)">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 0 1-13.05 5.07M4.5 12A7.5 7.5 0 0 1 17.55 6.93M4.5 4.5v4.5h4.5M19.5 19.5V15h-4.5"></path></svg>
@@ -133,6 +167,14 @@
           <h2 class="font-semibold text-sm">Caixa de triagem</h2>
           <span class="badge badge-warning badge-sm tnum" x-text="itens.length"></span>
           <span class="text-xs text-base-content/50">eventos aguardando análise</span>
+          <!-- @click.stop: o cabeçalho inteiro abre/fecha a caixa. -->
+          <button class="btn btn-ghost btn-xs normal-case text-base-content/60 hover:text-warning"
+                  @click.stop="concluirTodos()"
+                  :disabled="concluindoTodos"
+                  title="Remover da fila todos os eventos listados. Não mexe no SIS nem na listagem de PAJs.">
+            <span class="loading loading-spinner loading-xs" x-show="concluindoTodos"></span>
+            <span x-text="concluindoTodos ? 'concluindo...' : 'Concluir todos'"></span>
+          </button>
         </div>
         <svg class="w-4 h-4 text-base-content/50 transition-transform" :class="aberta && 'rotate-180'"
              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"></path></svg>
@@ -445,6 +487,17 @@
                   Abrir PAJ
                 </button>
               </template>
+
+              <!-- Concluir: marca pessoal do painel. Tira o PAJ da listagem
+                   para sobrar na tela o que ainda falta analisar. Sem efeito
+                   no SIS-DPU; movimentação nova traz o PAJ de volta. -->
+              <button class="btn btn-sm btn-ghost btn-square text-base-content/40
+                             hover:text-success hover:bg-success/10
+                             opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Concluir no painel: some da lista até haver movimentação nova. Não mexe no SIS."
+                      @click.stop="concluirPaj(paj)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path></svg>
+              </button>
             </div>
 
           </div>
@@ -493,7 +546,11 @@ function dashboardApp() {
         filtroMov: '',
         busca: '',
         ordemCampo: 'data_caixa',
-        ordemAsc: false,
+        // Ordem padrao: do MAIS ANTIGO para o mais novo, para o PAJ parado ha
+        // mais tempo na caixa aparecer primeiro. As datas vem em ISO
+        // (YYYY-MM-DD) nas 307 pastas, entao a comparacao de texto ja e'
+        // cronologica. Clicar no cabecalho continua invertendo.
+        ordemAsc: true,
         statusMap: {},
         stats: {running: 0, queued: 0, max_parallel: 5},
 
@@ -694,6 +751,60 @@ function dashboardApp() {
                 return 0;
             });
             this.pajsFiltrados = lista;
+        },
+
+        // Concluir/reabrir: marca só do painel, para a lista mostrar o que
+        // ainda falta. Some da tela na hora, e o toast oferece desfazer,
+        // porque a ação esconde uma linha e um clique errado é fácil.
+        async concluirPaj(paj) {
+            const alvo = paj.paj_norm;
+            try {
+                const resp = await fetch('/api/paj/' + alvo + '/concluir', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({max_seq_mov: paj.max_seq_mov || 0}),
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                this.pajs = this.pajs.filter(p => p.paj_norm !== alvo);
+                this.aplicarFiltros();
+                this._toastDesfazer(paj.paj || alvo, alvo);
+            } catch (e) {
+                showToast('Falha ao concluir: ' + e.message, 'error');
+            }
+        },
+
+        async reabrirPaj(pajNorm) {
+            try {
+                const resp = await fetch('/api/paj/' + pajNorm + '/reabrir', {method: 'POST'});
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                await this.recarregar();
+                showToast('PAJ de volta à lista', 'info');
+            } catch (e) {
+                showToast('Falha ao reabrir: ' + e.message, 'error');
+            }
+        },
+
+        _toastDesfazer(rotulo, pajNorm) {
+            const cont = document.getElementById('toast-container');
+            if (!cont) return;
+            const el = document.createElement('div');
+            el.className = 'alert alert-success text-sm py-2 px-4 shadow-lg flex items-center gap-3';
+            const txt = document.createElement('span');
+            // textContent, não innerHTML: o rótulo vem de dados do PAJ.
+            txt.textContent = rotulo + ' concluído';
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-xs btn-ghost';
+            btn.textContent = 'Desfazer';
+            const self = this;
+            btn.onclick = function() { el.remove(); self.reabrirPaj(pajNorm); };
+            el.appendChild(txt);
+            el.appendChild(btn);
+            cont.appendChild(el);
+            setTimeout(function() {
+                el.style.transition = 'opacity 0.3s';
+                el.style.opacity = '0';
+                setTimeout(function() { el.remove(); }, 300);
+            }, 6000);
         },
 
         ordenarPor(campo) {

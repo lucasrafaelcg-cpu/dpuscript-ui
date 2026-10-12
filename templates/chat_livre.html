@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Discussão — PAJ {{ paj_inicial }}{% endblock %}
+{% block title %}{% if paj_inicial == 'GERAL' %}Discussão geral{% else %}Discussão — PAJ {{ paj_inicial }}{% endif %}{% endblock %}
 
 {% block content_class %}p-0 max-w-none{% endblock %}
 
@@ -220,9 +220,11 @@
     <aside class="cl-sidebar">
         <div class="cl-sidebar-header">
             <div class="text-xs text-base-content/60 mb-1.5 uppercase tracking-wide font-semibold">
-                Conversas sobre o PAJ
+                <span x-show="ehGeral">Conversas gerais</span>
+                <span x-show="!ehGeral">Conversas sobre o PAJ</span>
             </div>
-            <div class="font-mono text-sm font-bold mb-2" x-text="pajNorm"></div>
+            <div class="font-mono text-sm font-bold mb-2"
+                 x-text="ehGeral ? 'Discussão geral' : pajNorm"></div>
             <button class="btn btn-primary btn-sm w-full"
                     @click="novaConversa()"
                     :disabled="!pajNorm">
@@ -231,7 +233,7 @@
                 </svg>
                 Nova conversa
             </button>
-            <a :href="'/paj/' + pajNorm" class="btn btn-ghost btn-sm w-full mt-2">
+            <a x-show="!ehGeral" :href="'/paj/' + pajNorm" class="btn btn-ghost btn-sm w-full mt-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
@@ -282,7 +284,8 @@
                 <div class="text-sm breadcrumbs">
                     <ul>
                         <li><a href="/" class="text-primary">Caixa</a></li>
-                        <li><a :href="'/paj/' + pajNorm" class="text-primary" x-text="pajNorm"></a></li>
+                        <li x-show="ehGeral">Discussão geral</li>
+                        <li x-show="!ehGeral"><a :href="'/paj/' + pajNorm" class="text-primary" x-text="pajNorm"></a></li>
                         <li>Discussão</li>
                     </ul>
                 </div>
@@ -317,9 +320,19 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mb-4 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
-                <h2 x-show="pajNorm" x-text="'Discussão sobre o PAJ ' + pajNorm"></h2>
+                <h2 x-show="ehGeral">Discussão geral</h2>
+                <h2 x-show="pajNorm && !ehGeral"
+                    x-text="'Discussão sobre o PAJ ' + pajNorm"></h2>
                 <h2 x-show="!pajNorm">Discussão de PAJ</h2>
-                <p x-show="pajNorm">
+                <p x-show="ehGeral">
+                    Conversa <strong>não vinculada a um PAJ</strong>. Use
+                    principalmente para <strong>analisar vários PAJs em
+                    conjunto</strong> — mande a lista (digitada, em arquivo ou por
+                    foto) e peça o diagnóstico conjunto ou um ofício que abarque os
+                    casos. Serve também para dúvida jurídica geral e organização do
+                    acervo.
+                </p>
+                <p x-show="pajNorm && !ehGeral">
                     Modo conversa para explorar tese, testar hipótese, brainstorm
                     estratégico ou tirar dúvidas sobre este caso. O Claude já tem
                     o PROMPT_MAX do PAJ como contexto e <strong>não vai produzir
@@ -373,7 +386,8 @@
                     </button>
                 </form>
                 <p class="text-xs text-base-content/40 mt-2">
-                    Modo discussão · Claude tem o PROMPT_MAX deste PAJ como contexto · multi-turn
+                    <span x-show="ehGeral">Discussão geral · sem PAJ vinculado · análise em lote disponível · multi-turn</span>
+                    <span x-show="!ehGeral">Modo discussão · Claude tem o PROMPT_MAX deste PAJ como contexto · multi-turn</span>
                 </p>
             </div>
         </template>
@@ -388,6 +402,7 @@ function chatLivreApp() {
     return {
         // Estado
         pajNorm: "{{ paj_inicial }}",
+        get ehGeral() { return this.pajNorm === 'GERAL'; },
         conversas: [],
         conversaAtivaId: '',
         conversaAtiva: { id: '', titulo: '', skill_slug: '', mensagens: [] },
@@ -396,6 +411,9 @@ function chatLivreApp() {
         ws: null,
         conectado: false,
         estaDigitando: false,
+        // Tentativas de reconexao seguidas. Zera no onopen e ao trocar de
+        // conversa; serve para a espera crescer e para desistir com aviso.
+        tentativasWS: 0,
         skillsAgrupadas: {},
         gruposSkills: [],
         msgAssistanteAtual: null,
@@ -519,25 +537,75 @@ function chatLivreApp() {
             var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             var url = proto + '//' + location.host + '/ws/chat-livre/' + id;
             var self = this;
-            this.ws = new WebSocket(url);
-            this.ws.onopen = function() { self.conectado = true; };
-            this.ws.onmessage = function(evt) {
+            var sock = new WebSocket(url);
+            this.ws = sock;
+
+            // CADA handler pertence ao SEU socket. Sem esta checagem, a aba
+            // entrava em "conectando/desconectando" sem parar: o servidor
+            // mantem um socket ativo por conversa e derruba o anterior, o
+            // `onclose` do socket velho zerava `conectado` mesmo com o novo ja'
+            // aberto, e 1200ms depois o temporizador criava outro socket, que
+            // derrubava o atual, e assim por diante. So' o refresh quebrava o
+            // ciclo, porque zerava tudo.
+            var atual = function() { return self.ws === sock; };
+
+            sock.onopen = function() {
+                if (!atual()) return;
+                self.conectado = true;
+                self.tentativasWS = 0;
+            };
+            sock.onmessage = function(evt) {
+                if (!atual()) return;
                 try { self.handleEvent(JSON.parse(evt.data)); } catch (e) {}
             };
-            this.ws.onclose = function() { self.conectado = false; self.estaDigitando = false; };
-            this.ws.onerror = function() {
+            sock.onclose = function() {
+                if (!atual()) return;   // socket superado: ignorar em silencio
                 self.conectado = false;
-                self.mensagens.push({type: 'error', text: 'Conexao perdida.'});
+                self.estaDigitando = false;
+                // Com o socket fechado a caixa de texto fica desabilitada, então
+                // reconecta em vez de exigir recarregar a pagina. Espera crescente
+                // e com teto: se o servidor estiver fora, nao vale ficar girando.
+                if (self.conversaAtivaId !== id) return;
+                self.tentativasWS = (self.tentativasWS || 0) + 1;
+                if (self.tentativasWS > 5) {
+                    self.mensagens.push({
+                        type: 'error',
+                        text: 'Nao consegui reconectar. Recarregue a pagina.',
+                    });
+                    return;
+                }
+                var espera = Math.min(1200 * self.tentativasWS, 8000);
+                setTimeout(function() {
+                    if (self.conversaAtivaId === id && self.ws === sock) {
+                        self.conectarWS(id);
+                    }
+                }, espera);
+            };
+            sock.onerror = function() {
+                if (!atual()) return;
+                self.conectado = false;
             };
         },
 
         fecharWS() {
             if (this.ws) {
-                try { this.ws.close(); } catch (e) {}
+                // Solta os handlers ANTES de fechar. Sem isso, um socket ainda
+                // em CONNECTING dispara onerror ao ser fechado e a tela mostrava
+                // "Conexao perdida." mesmo com a conexao nova funcionando.
+                try {
+                    this.ws.onopen = null;
+                    this.ws.onmessage = null;
+                    this.ws.onclose = null;
+                    this.ws.onerror = null;
+                    this.ws.close();
+                } catch (e) {}
                 this.ws = null;
             }
             this.conectado = false;
             this.estaDigitando = false;
+            // Fechamento deliberado (trocar de conversa, sair): a contagem de
+            // tentativas nao deve vazar para a conexao seguinte.
+            this.tentativasWS = 0;
         },
 
         handleEvent(data) {

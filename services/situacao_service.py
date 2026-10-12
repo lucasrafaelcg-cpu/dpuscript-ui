@@ -19,8 +19,8 @@ import logging
 import subprocess
 import threading
 
-from config import PAJS_DIR
-from services.chat_service import CLAUDE_CMD
+from config import OFICIO_UNIDADE, PAJS_DIR
+from services.chat_service import resolver_claude_cmd
 from services.planejar_service import _env_sem_claudecode, classificar_erro_claude
 from services.prompt_builder import SITUACAO_FILE, gerar_prompt_max, montar_contexto
 
@@ -119,8 +119,8 @@ def fila_status() -> dict:
         return {"na_fila": sorted(_na_fila), "em_analise": sorted(_em_andamento)}
 
 _SYSTEM_PROMPT = (
-    "Voce e' Defensor(a) Publico(a) Federal experiente atuando na Justica "
-    "Federal de Osasco (metodo FIRAC: Fatos, Questoes, Regras, Aplicacao, "
+    f"Voce e' Defensor(a) Publico(a) Federal experiente atuando na "
+    f"{OFICIO_UNIDADE} (metodo FIRAC: Fatos, Questoes, Regras, Aplicacao, "
     "Conclusao). Executor de tarefa: NAO se apresente, NAO converse, NAO "
     "mostre raciocinio intermediario. Responda APENAS com o relatorio markdown "
     "no molde pedido."
@@ -135,6 +135,57 @@ Analise o contexto ACIMA (movimentações, prazos, peças, texto do SISDPU) e
 produza um RELATÓRIO CURTO da situação atual do PAJ. NÃO repita as
 movimentações (há aba própria para isso) — entregue o RESULTADO da análise.
 
+## PRIORIDADE — o que olhar primeiro
+
+Comece pelas ÚLTIMAS movimentações, com atenção especial aos **apontamentos da
+assessoria e do Núcleo Assistencial**: é ali que normalmente está dito, de
+forma direta, o que precisa ser feito AGORA (minutar determinada peça,
+despachar, oficiar, aguardar, arquivar). Extraia essa orientação e trate-a como
+o eixo da análise. Se a assessoria já indicou a providência, sua tarefa é
+confirmá-la contra os autos e dizer o próximo passo concreto — **DESPACHO ou
+PEÇA, e qual** —, não reabrir a análise do zero nem propor caminho diverso sem
+motivo expresso.
+
+Pendência de documentação NÃO é achado padrão. Avalie-a somente se ela
+IMPEDIR a providência apontada; nesse caso diga o que falta e por que bloqueia.
+Se a documentação não impede o próximo passo, no máximo registre uma
+observação de uma linha. Nunca substitua a indicação da providência por uma
+lista de documentos faltantes, e não use "documentação incompleta" como
+conclusão quando as movimentações já apontam o que fazer.
+
+## REGRA DE PRIORIDADE — se cabe PEÇA, a peça é o produto
+
+Se a análise concluir que cabe **petição intercorrente ou recurso** (ou
+qualquer manifestação ao juízo), então a providência é ELABORAR A MINUTA —
+não despachar, não aguardar, não encaminhar a ninguém. Especificamente:
+
+- **NÃO** aguarde a assessoria e **NÃO** proponha despacho remetendo o caso à
+  assessoria, ao gabinete ou ao apoio para que outra pessoa minute a peça.
+  Fórmulas como "encaminhe-se à assessoria para minuta", "ao apoio para
+  minutar" ou "aguarde-se a minuta" estão PROIBIDAS como providência quando a
+  peça já é cabível.
+- Diga QUAL é a peça cabível e o prazo, e registre que a minuta será elaborada
+  agora (o Defensor a produz pelo botão de elaborar peça do painel).
+- O despacho do item 4 do molde, nesse cenário, serve apenas para REGISTRAR no
+  PAJ a providência adotada (ex.: ciência da intimação e elaboração da peça),
+  nunca para transferir a tarefa a outrem.
+
+Isso não conflita com a prioridade dada aos apontamentos da assessoria: quando
+a assessoria JÁ ENTREGOU algo (minuta, relatório, informação), leia e use;
+quando ela ainda NÃO entregou e a peça é cabível, faça você a minuta em vez de
+esperar.
+
+## QUEM JUNTA A PETIÇÃO — divisão de trabalho no ofício
+
+A juntada de **petição intercorrente** é do DEFENSOR, não do Cartório. O
+Cartório faz o pré-cadastro e a juntada da **petição inicial**, apenas.
+
+Logo, nunca proponha despacho mandando o Cartório juntar manifestação,
+réplica, recurso, embargos, impugnação, memoriais ou qualquer peça no curso do
+processo. Fórmulas como "ao Cartório para juntada" ou "Cartório: proceder à
+juntada da petição" só cabem em petição inicial. Na intercorrente, o despacho
+registra que o próprio Defensor protocola.
+
 Primeiro identifique qual movimentação EFETIVAMENTE encaminhou o PAJ ao
 defensor, com cuidado com os ruídos do SISDPU:
 - PAJs chegam em duplicidade: a última movimentação pode ser uma "conclusão"
@@ -147,18 +198,93 @@ defensor, com cuidado com os ruídos do SISDPU:
 Depois classifique o evento (Abertura de PAJ/redistribuição · Retorno do
 Assistido · Intimação judicial · Resposta de ofício · Controle de prazo) e
 analise conforme o fluxo:
-- **Retorno do Assistido** — o que o assistido solicitou ou apresentou? Se
-  documentação: confira contra o que foi pedido nas movimentações anteriores —
-  completa (pronta para minuta) ou incompleta (liste EXATAMENTE o que falta).
-  Se requerimento/reclamação/pedido de informação: resuma e indique a resposta
-  educada cabível.
+- **Retorno do Assistido** — o que o assistido solicitou ou apresentou, e o que
+  a assessoria apontou a respeito. Se apresentou documentação: diga se ela já
+  viabiliza a providência indicada; liste o que falta APENAS se isso bloquear o
+  próximo passo. Se requerimento/reclamação/pedido de informação: resuma e
+  indique a resposta educada cabível.
 - **Abertura de PAJ** — narrativa da demanda, NB/DER se houver, renda declarada
-  vs. limite de atuação da DPU, documentos juntados vs. checklist da demanda,
-  lacunas.
+  vs. limite de atuação da DPU e a providência apontada pela assessoria.
+  Lacunas documentais somente se impedirem a atuação agora. **Neste fluxo é
+  OBRIGATÓRIA a análise de mérito descrita abaixo.**
 - **Intimação judicial** — id e teor do ato, favorável ou desfavorável ao
   assistido, prazo e peça cabível (considere a seção do PJe, se presente).
 - **Resposta de ofício** — a demanda foi solucionada? Próximos passos.
 - **Controle de prazo** — o que o prazo controlava e a providência.
+
+## PAJ DE PRIMEIRO CONTATO — ANÁLISE DE MÉRITO OBRIGATÓRIA
+
+Quando o PAJ chega ao defensor pela PRIMEIRA VEZ (abertura de PAJ,
+redistribuição à unidade, ou PAJ novo na caixa sem movimentação classificável),
+a análise NÃO se limita a conferir presença ou ausência de documentos. É
+obrigatório examinar o MÉRITO da pretensão e concluir sobre sua VIABILIDADE.
+
+Para isso, acrescente ao molde uma seção **"5. Análise de mérito e
+viabilidade"** com:
+
+- **O direito pleiteado** — qualifique juridicamente o que a parte busca (não
+  repita a narrativa: diga o instituto, ex.: restabelecimento de auxílio por
+  incapacidade temporária; BPC/LOAS por deficiência; fornecimento de
+  medicamento fora da RENAME; revisão de benefício).
+- **Requisitos legais** — os requisitos do direito pleiteado, um a um, e o que
+  os autos/documentos demonstram sobre CADA um (atendido · não atendido ·
+  indefinido). É aqui que a documentação entra: não como checklist burocrático,
+  mas como prova de requisito.
+- **Obstáculos e teses contrárias** — prescrição/decadência, prévio
+  requerimento administrativo, coisa julgada, competência, litispendência,
+  ausência de interesse, entendimento consolidado desfavorável. Consulte a base
+  local de entendimentos da CCR/DPU (`~/.claude/conhecimento-dpu/`, começando
+  pelo `INDICE.md`) e cite enunciado, tese de arquivamento ou precedente
+  APENAS se estiver literalmente na base — nunca invente.
+- **Conclusão de viabilidade**, escolhendo uma destas: **VIÁVEL** (a
+  documentação já sustenta a pretensão — indique a peça cabível); **AINDA NÃO
+  VIÁVEL** (a tese é boa, mas falta prova de requisito determinado — diga
+  exatamente qual prova e como obtê-la); **INVIÁVEL** (obstáculo jurídico
+  insuperável ou pretensão sem amparo — explique e indique o encaminhamento,
+  inclusive orientação ao assistido ou arquivamento fundamentado).
+
+Se a conclusão for VIÁVEL, aplica-se a regra de prioridade acima: a
+providência é elaborar a peça, não encaminhá-la a terceiros.
+
+## CASO ESPECIAL — minuta da assessoria aguardando revisão
+
+Se o contexto tiver a seção "Minuta da assessoria aguardando revisao do
+Defensor", a tarefa principal é REVISAR essa minuta. Nesse caso, acrescente ao
+molde abaixo uma seção final **"5. Revisão da minuta"** com:
+
+- **Veredito:** "de acordo" · "de acordo com ajustes" · "não serve — refazer".
+- **Aderência ao PAJ:** a minuta corresponde ao que este PAJ pede AGORA (peça
+  cabível, pedidos, partes, número do processo, juízo, prazo)? Aponte cada
+  divergência contra os dados do PAJ acima.
+- **Erros encontrados:** lista objetiva e concreta (dispositivo legal errado,
+  data/valor/nome incorreto, pedido faltante ou incompatível, tese inadequada,
+  citação de jurisprudência inexistente ou impertinente, endereçamento errado).
+  Cite o trecho. Se não houver erro, diga "nenhum erro identificado".
+- **O que fazer:** se houver o que corrigir, avise que a versão corrigida deve
+  ser gerada na elaboração (botão de elaborar peça) — não escreva a peça
+  inteira aqui.
+
+Se a minuta NÃO estiver acessível (só link do editor do PJe, ou arquivo
+ausente), NÃO adivinhe o conteúdo: registre que a revisão está impossibilitada
+e o que é preciso para viabilizá-la.
+
+
+REGRA ESPECIAL — EXECUCAO FISCAL COM CURADORIA ESPECIAL:
+Antes de sugerir a minuta de EMBARGOS A EXECUCAO FISCAL, verifique uma a uma
+as teses e diga na analise o que examinou: (a) prescricao/decadencia, pelas
+datas de inscricao de cada CDA; (b) legitimidade do corresponsavel, que SO
+existe se o devedor principal for pessoa juridica com personalidade autonoma
+— se a razao social do CNPJ for o proprio nome da pessoa natural, sem LTDA/
+ME/EIRELI, e EMPRESARIO INDIVIDUAL, CNPJ e CPF sao o mesmo sujeito e o art.
+135, III, do CTN nao tem objeto; (c) nulidade da CDA; (d) excesso de
+execucao; (e) impenhorabilidade — que NAO e tese nova se ja foi ventilada e
+rejeitada em manifestacao anterior.
+NAO havendo tese viavel, NAO sugira minutar embargos. Sugira DESPACHO que
+sustente a inviabilidade tese por tese, ressalte as dificuldades inerentes a
+CURADORIA ESPECIAL (sem contato com o executado revel citado por edital, sem
+acesso aos documentos e a origem dos creditos), registre o prazo dos embargos
+e a consequencia de deixa-lo correr, e manifeste ciencia.
+NAO cite skill que nao exista no workspace: confira antes.
 
 ## MOLDE DA RESPOSTA (obrigatório — 4 seções numeradas, markdown)
 
@@ -169,7 +295,12 @@ analise conforme o fluxo:
    previdenciário para minuta da inicial; skill de mensagem ao assistido;
    plugin previdenciário + skill BPC-LOAS para viabilidade de recurso).
 4. **Sugestão de despacho no PAJ** — texto PRONTO do despacho administrativo,
-   curto e objetivo, para colar no DPU Digital.
+   curto e objetivo, para colar no DPU Digital. O TEXTO DO DESPACHO em si vai
+   em TEXTO PURO, sem nenhuma marcação (`*`, `**`, `#`, `>`, `-` de lista,
+   backticks): o editor da DPU não interpreta esses caracteres e eles apareceriam
+   literalmente. Enfase em CAIXA ALTA; enumeração com 'a)', 'b)' ou '1.' no
+   corpo do parágrafo. (As demais seções deste relatório seguem em markdown
+   normal — a restrição é só para o texto do despacho.)
 
 ## EXEMPLOS DE TOM E FORMATO (ilustrativos — adapte ao caso concreto)
 
@@ -226,8 +357,9 @@ async def _gerar_situacao_exclusivo(paj_norm: str, pasta, prompt: str,
     # projeto (tom conversacional). Prompt via stdin (limite de 32k chars no
     # command line do Windows). cwd na pasta do PAJ: o Claude pode ler os .txt
     # locais (pecas/OCR) se precisar de detalhe.
+    claude_cmd = resolver_claude_cmd()
     cmd = [
-        *CLAUDE_CMD,
+        *claude_cmd,
         "--print",
         "--setting-sources", "user",
         "--append-system-prompt", _SYSTEM_PROMPT,
@@ -248,7 +380,7 @@ async def _gerar_situacao_exclusivo(paj_norm: str, pasta, prompt: str,
     except subprocess.TimeoutExpired:
         return {"ok": False, "erro": f"Timeout ({timeout}s) na análise — tente de novo."}
     except FileNotFoundError:
-        return {"ok": False, "erro": f"Claude CLI não encontrado: {' '.join(CLAUDE_CMD)}"}
+        return {"ok": False, "erro": f"Claude CLI não encontrado: {' '.join(claude_cmd)}"}
     except Exception as e:
         return {"ok": False, "erro": f"{type(e).__name__}: {e}"}
 
@@ -269,5 +401,21 @@ async def _gerar_situacao_exclusivo(paj_norm: str, pasta, prompt: str,
     # PROMPT_MAX passa a abrir com a análise (ordem definida pelo Defensor).
     gerar_prompt_max(paj_norm)
 
+    # Fase 3 do fluxo: a seção 4 da análise vira despacho de verdade, na aba
+    # Despachos, e entra na fila de Diligências. Best-effort: falha aqui não
+    # pode derrubar a análise, que é o produto caro.
+    despacho = {}
+    try:
+        from services import diligencias_service, despacho_firac
+
+        despacho = despacho_firac.criar_do_firac(paj_norm)
+        if despacho.get("ok") and despacho.get("motivo") == "criado":
+            diligencias_service.registrar(
+                paj_norm, despacho["arquivo"], diligencias_service.TIPO_DESPACHO,
+                titulo="Despacho sugerido na análise")
+    except Exception as e:
+        logger.warning("despacho do FIRAC falhou em %s: %s", paj_norm, e)
+
     return {"ok": True, "texto": cabecalho + texto,
+            "despacho": despacho,
             "gerada_em": agora.isoformat(timespec="seconds")}

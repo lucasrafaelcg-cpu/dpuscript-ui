@@ -1,6 +1,12 @@
 """Extracao de texto de PDFs via fitz (PyMuPDF) + Tesseract fallback.
 
-Funcao publica: `extrair_texto(pdf_path, *, deve_cancelar=None, timeout_por_pagina_seg=30)`.
+Funcoes publicas:
+  - `extrair_texto(pdf_path, ...)` — PDFs (texto nativo, com OCR de fallback).
+  - `extrair_texto_docx(path)` — DOCX (paragrafos + tabelas), via python-docx.
+  - `extrair_texto_arquivo(path, ...)` — despachante por extensao.
+
+DOCX importa porque as MINUTAS da assessoria chegam nesse formato: sem
+extrair o texto delas, a analise do PAJ nao tem como ler nem revisar a minuta.
 
 Se o PDF tem texto nativo (>200 chars totais), usa fitz direto. Caso contrario,
 renderiza cada pagina como imagem e roda Tesseract (lang="por"). Se o Tesseract
@@ -118,3 +124,56 @@ def extrair_texto(
             f"\n[OCR abortado pelo usuario na pagina {abortado_em}/{total_paginas}]\n"
         )
     return resultado
+
+
+def extrair_texto_docx(path: Path) -> str:
+    """Extrai texto de um .docx (paragrafos + celulas de tabela), na ordem.
+
+    Usado principalmente para MINUTAS da assessoria. Sem isso o arquivo fica
+    sem `.txt` companion e a analise do PAJ nao consegue ler a minuta.
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        return "[python-docx nao instalado — instale 'python-docx' para ler .docx]\n"
+
+    try:
+        doc = Document(str(path))
+    except Exception as e:
+        return f"[erro abrindo DOCX: {type(e).__name__}: {e}]\n"
+
+    partes: list[str] = []
+    for p in doc.paragraphs:
+        t = (p.text or "").strip()
+        if t:
+            partes.append(t)
+
+    for tabela in doc.tables:
+        for linha in tabela.rows:
+            celulas = [(c.text or "").strip() for c in linha.cells]
+            celulas = [c for c in celulas if c]
+            if celulas:
+                partes.append(" | ".join(celulas))
+
+    if not partes:
+        return "[DOCX sem texto extraivel — pode conter apenas imagens]\n"
+    return "\n\n".join(partes) + "\n"
+
+
+def extrair_texto_arquivo(
+    path: Path,
+    *,
+    deve_cancelar: Callable[[], bool] | None = None,
+    timeout_por_pagina_seg: int = 30,
+) -> str | None:
+    """Despacha a extracao conforme a extensao. None se o tipo nao e' suportado."""
+    ext = path.suffix.lower()
+    if ext == ".pdf":
+        return extrair_texto(
+            path,
+            deve_cancelar=deve_cancelar,
+            timeout_por_pagina_seg=timeout_por_pagina_seg,
+        )
+    if ext == ".docx":
+        return extrair_texto_docx(path)
+    return None

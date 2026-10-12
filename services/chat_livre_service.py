@@ -27,14 +27,13 @@ import contextlib
 import datetime as _dt
 import json
 import queue
-import shutil
 import subprocess
-import sys
 import threading
 import uuid
 from pathlib import Path
 
 from config import OFICIO_GERAL, PAJS_DIR
+from services.chat_service import detectar_falha_cli, resolver_claude_cmd
 from services.skills_catalog import skill_descricao, skill_valida
 
 
@@ -42,11 +41,20 @@ from services.skills_catalog import skill_descricao, skill_valida
 # Persistencia em disco (em PAJs/<paj_norm>/conversas/<id>.json)
 # ---------------------------------------------------------------------------
 
+# Conversa GERAL: nao pertence a nenhum PAJ. Usada para assuntos amplos e,
+# principalmente, para ANALISE CONJUNTA de varios PAJs. Fica FORA de PAJS_DIR
+# de proposito — dentro, uma pasta extra apareceria como se fosse um PAJ nas
+# varreduras (dashboard, triagem, contagem, sincronizacao).
+GERAL = "GERAL"
+PASTA_GERAL = OFICIO_GERAL / "Discussao Geral"
+
+
 def _validar_paj_norm(paj_norm: str) -> bool:
-    """Aceita apenas o formato canonico PAJ-YYYY-NNN-NNNNN. Bloqueia path
-    traversal."""
+    """Aceita PAJ-YYYY-NNN-NNNNN ou o sentinela GERAL. Bloqueia path traversal."""
     if not paj_norm or "/" in paj_norm or "\\" in paj_norm or ".." in paj_norm:
         return False
+    if paj_norm == GERAL:
+        return True
     if not paj_norm.startswith("PAJ-"):
         return False
     pasta = PAJS_DIR / paj_norm
@@ -67,6 +75,8 @@ def _validar_id(conv_id: str) -> bool:
 def _pasta_conversas(paj_norm: str) -> Path | None:
     if not _validar_paj_norm(paj_norm):
         return None
+    if paj_norm == GERAL:
+        return PASTA_GERAL / "conversas"
     return PAJS_DIR / paj_norm / "conversas"
 
 
@@ -91,6 +101,10 @@ def _localizar_conversa(conv_id: str) -> tuple[str, Path] | None:
     if not PAJS_DIR.exists():
         return None
     nome = f"{conv_id}.json"
+    # conversas gerais ficam fora de PAJS_DIR — checar primeiro (pasta pequena)
+    candidato_geral = PASTA_GERAL / "conversas" / nome
+    if candidato_geral.exists():
+        return (GERAL, candidato_geral)
     for paj_dir in PAJS_DIR.iterdir():
         if not paj_dir.is_dir() or not paj_dir.name.startswith("PAJ-"):
             continue
@@ -257,18 +271,9 @@ def _gravar(paj_norm: str, conv_id: str, conversa: dict) -> None:
 # Sessao Claude
 # ---------------------------------------------------------------------------
 
-def _resolver_claude_cmd() -> list[str]:
-    """Resolve `claude` via shutil.which; no Windows envolve com cmd.exe /c
-    se for batch (.cmd/.bat)."""
-    resolved = shutil.which("claude")
-    if not resolved:
-        return ["claude"]
-    if sys.platform == "win32" and resolved.lower().endswith((".cmd", ".bat")):
-        return ["cmd.exe", "/c", resolved]
-    return [resolved]
-
-
-CLAUDE_CMD: list[str] = _resolver_claude_cmd()
+# Resolucao do comando `claude` centralizada em chat_service.resolver_claude_cmd
+# (busca CLAUDE_CODE_EXECPATH, PATH e locais conhecidos do Claude Desktop no
+# Windows). Chamada fresca a cada uso — nao cachear, ver comentario la'.
 
 
 def _ler_prompt_max(paj_norm: str) -> str:
@@ -343,16 +348,123 @@ def _montar_prompt_inicial(paj_norm: str, skill_slug: str | None) -> str:
             "caso contrario, responda livre.\n"
         )
 
+    if paj_norm == GERAL:
+        abertura = (
+            "Voce esta em **modo discussao GERAL** no workspace Oficio Geral "
+            "(CLAUDE.md aplica — terminologia DPU, estilo, bases, MEMORY.md, "
+            "hooks). Esta conversa NAO esta vinculada a nenhum PAJ.\n\n"
+            "E' aqui que o Defensor trata do que atravessa varios casos. O uso "
+            "PRINCIPAL e' a **analise conjunta de PAJs**: ele manda uma lista "
+            "(digitada, em arquivo ou por foto) e quer os casos olhados JUNTOS "
+            "— tipicamente para decidir se cabe UMA peca, em geral um oficio, "
+            "abarcando mais de um caso. Use a ferramenta de lote descrita "
+            "abaixo; NAO peca os dados a ele nem leia PAJ por PAJ na mao.\n\n"
+            "Tambem serve para duvida juridica geral, organizacao do acervo, "
+            "duvida sobre o proprio painel e qualquer assunto que nao caiba em "
+            "um PAJ so'. Como nao ha PAJ vinculado, NAO presuma caso: se a "
+            "pergunta depender de um PAJ especifico e ele nao disser qual, "
+            "pergunte. **Nao produza peca formal** a menos que ele peca.\n"
+        )
+    else:
+        abertura = (
+            f"Voce esta em **modo discussao** sobre o PAJ `{paj_norm}` no "
+            "workspace Oficio Geral (CLAUDE.md aplica — terminologia DPU, "
+            "estilo, bases, MEMORY.md, hooks).\n\n"
+            "Esta NAO e' uma sessao de elaboracao de peca. O Defensor vai usar "
+            "este chat para explorar tese, testar hipotese, fazer pergunta "
+            "sobre o caso, brainstorm estrategico, esclarecer duvida juridica "
+            "vinculada ao PAJ. **Nao produza peca formal** a menos que o "
+            "Defensor peca explicitamente; nesse caso, siga as skills do "
+            "workspace normalmente.\n"
+        )
+
     return (
-        f"Voce esta em **modo discussao** sobre o PAJ `{paj_norm}` no workspace "
-        "Oficio Geral (CLAUDE.md aplica — terminologia DPU, estilo, bases, "
-        "MEMORY.md, hooks).\n\n"
-        "Esta NAO e' uma sessao de elaboracao de peca. O Defensor vai usar "
-        "este chat para explorar tese, testar hipotese, fazer pergunta sobre "
-        "o caso, brainstorm estrategico, esclarecer duvida juridica vinculada "
-        "ao PAJ. **Nao produza peca formal** a menos que o Defensor peca "
-        "explicitamente; nesse caso, siga as skills do workspace normalmente.\n"
-        f"{skill_bloco}\n"
+        abertura
+        + "\nResponda SEMPRE em portugues do Brasil, inclusive avisos de "
+        "progresso do tipo 'vou rodar tal ferramenta' — o Defensor le isso na "
+        "tela do painel.\n"
+        + "**REDACAO — MODO DPU:** se produzir texto juridico aqui, siga o "
+        "registro do `CLAUDE.md`: frase curta (~21 palavras), paragrafo de uma "
+        "ideia, primeira pessoa decisoria, despacho SEM titulo de secao e sem "
+        "ancora de documento, e o bloco `Atendimento:` em linguagem de leigo "
+        "quando a parte tiver de ser informada. Despacho simples fica em 200 a "
+        "300 palavras: os dele tem 245 de media, os meus tinham 973. Conectivos "
+        "como 'Outrossim' e 'Com efeito' sao LIBERADOS.\n"
+        + f"{skill_bloco}\n"
+        "**DESPACHO = TEXTO PURO, SEM MARCACAO.** Sempre que o produto for um "
+        "DESPACHO (ou qualquer texto para colar no DPU Digital / SISDPU), "
+        "escreva em texto corrido puro: NADA de `*`, `**`, `#`, `##`, `>`, "
+        "`-` de lista, backticks ou tabelas. O editor de texto da DPU nao "
+        "interpreta esses caracteres — eles aparecem literalmente e sujam o "
+        "despacho. Para dar enfase, use CAIXA ALTA ou apenas a ordem das "
+        "frases; para enumerar, escreva 'a)', 'b)' ou '1.' no corpo do "
+        "paragrafo.\n"
+        "Isso vale SO' para despachos. PECAS JUDICIAIS (peticao, manifestacao, "
+        "recurso, contestacao, memoriais) continuam usando os marcadores de "
+        "formatacao normais (`##`, `###`, `>`, `**negrito**`), porque elas "
+        "passam pelo gerador de DOCX/PDF que depende deles.\n\n"
+        "## ANALISAR VARIOS PAJs EM CONJUNTO (analise em lote)\n\n"
+        "Quando o Defensor mandar uma LISTA de PAJs e pedir para olha-los "
+        "juntos — tipicamente para decidir se cabe UM oficio abarcando varios "
+        "casos — NAO tente ler PAJ por PAJ na mao nem pedir os dados a ele. "
+        "Use a ferramenta do painel, que consolida o `metadata.json` e a "
+        "analise FIRAC (`SITUACAO.md`) que JA EXISTEM em cada PAJ:\n\n"
+        "```bash\n"
+        "cd /c/Users/Administrador/Claude/dpuscript-ui && \\\n"
+        "  ./.venv/Scripts/python.exe -m services.lote_service \\\n"
+        "  2026/056-00511 2025/056-00344 --saida logs/lote.md\n"
+        "```\n\n"
+        "Depois LEIA `logs/lote.md` e raciocine sobre o conjunto. Variantes: "
+        "`--arquivo lista.txt` para uma lista em arquivo e `--imagem foto.jpg` "
+        "para ler a lista de uma FOTO/print por OCR. O parser aceita "
+        "`2026/056-00511`, `PAJ-2026-056-00511`, `2026-056-00511` e "
+        "`2026.056.00511`, misturados e com texto em volta.\n\n"
+        "Ao analisar o conjunto, entregue: (a) o que os casos tem em COMUM "
+        "(mesmo orgao, mesma tese, mesmo obstaculo) e o que os separa; (b) se "
+        "cabe ou nao uma peca unica — dizendo por que; (c) se couber, a peca, "
+        "identificando cada PAJ e assistido nela. Se algum PAJ da lista nao "
+        "for localizado, o comando avisa: relate isso e NAO invente dados. Se "
+        "um PAJ nao tiver analise previa, o bloco dele diz isso — sinalize ao "
+        "Defensor em vez de supor.\n\n"
+        "## LANCAR MOVIMENTACAO NO SISDPU (escrita — pedido do Defensor basta)\n\n"
+        "Voce PODE inserir movimentacao no PAJ (inclusive anexando peca) quando "
+        "o Defensor PEDIR. Use o endpoint local do painel:\n\n"
+        "```bash\n"
+        "curl -s -X POST http://127.0.0.1:8001/api/paj/<PAJ-NORM>/movimentar \\\n"
+        "  -H 'Content-Type: application/json' -m 600 \\\n"
+        "  -d '{\"fase\":\"Petição diversa com conteúdo jurídico\",\n"
+        "       \"descricao_html\":\"<p>texto da movimentacao</p>\",\n"
+        "       \"anexos\":[\"C:/caminho/completo/Peca.pdf\"],\n"
+        "       \"confirmar\":true}'\n"
+        "```\n\n"
+        "**O PEDIDO DELE JA E' A AUTORIZACAO.** Quando o Defensor pede para "
+        "lancar/anexar, EXECUTE DIRETO com `\"confirmar\":true` no corpo. NAO "
+        "faca dry-run antes, NAO peca confirmacao de novo, NAO pergunte 'posso "
+        "efetivar?' — ele ja' autorizou ao pedir, e ficar reconfirmando so' "
+        "atrasa o trabalho dele.\n\n"
+        "So' PERGUNTE se faltar dado essencial ou houver ambiguidade real: qual "
+        "PAJ, qual arquivo anexar, ou qual fase quando o pedido nao permitir "
+        "inferir. Isso e' pergunta de ESCOPO, nao de permissao.\n\n"
+        "**Depois de executar, RELATE:** PAJ, assistido, fase, anexo e se "
+        "`gravado` veio `true`, citando a `ultima_movimentacao`. Se vier "
+        "`false`, AVISE e NAO repita o comando (risco de movimentacao "
+        "duplicada) — peca conferencia manual no SISDPU.\n\n"
+        "Se quiser conferir antes SEM gravar — util quando VOCE mesmo esta em "
+        "duvida sobre o alvo — rode sem `confirmar` (dry-run) e mostre o "
+        "`screenshot`. Mas isso e' excecao, nao o fluxo normal.\n\n"
+        "Se a resposta vier com `abortado: true`, uma trava de seguranca "
+        "reprovou (PAJ divergente, fase inexistente, anexo ausente); relate o "
+        "motivo e NAO tente contornar. Fases disponiveis: 'Petição diversa com "
+        "conteúdo jurídico' (padrao), 'Petição inicial', 'Petição. Recurso', "
+        "'Petição simples', 'Despacho. Impulso do paj'. Em fases de peticao o "
+        "painel ja' desmarca a exibicao da descricao ao assistido na internet. "
+        "Anexe de preferencia o PDF/DOCX gerado (nao o .txt).\n\n"
+        "**NOME DO ARQUIVO** (quando o Defensor pedir para salvar uma peca): "
+        "inclua o NOME e o SOBRENOME da parte, no formato "
+        "`<tipo da peca> <Nome Sobrenome>.txt` — ex.: "
+        "`Manifestacao Impugnacao Laudo Clarissa Lopes.txt`. Use o primeiro "
+        "nome + primeiro sobrenome; espacos e acentos podem; evite "
+        "`\\ / : * ? \" < > | # &`. Despacho comeca com a palavra `Despacho`.\n\n"
         "Contexto do PAJ (gerado pelo painel — pode ler `sisdpu.txt` na pasta "
         "do PAJ se precisar de mais detalhes):\n\n"
         "--- INICIO DO PROMPT_MAX ---\n"
@@ -381,8 +493,9 @@ class ChatLivreSession:
         self._contexto_injetado = False
 
     def _start_subprocess(self) -> bool:
+        claude_cmd = resolver_claude_cmd()
         cmd = [
-            *CLAUDE_CMD,
+            *claude_cmd,
             "-p",
             "--verbose",
             "--output-format", "stream-json",
@@ -405,7 +518,7 @@ class ChatLivreSession:
         except FileNotFoundError:
             self.status = "error"
             self.error = (
-                f"Comando Claude CLI nao encontrado (tentou: {' '.join(CLAUDE_CMD)}). "
+                f"Comando Claude CLI nao encontrado (tentou: {' '.join(claude_cmd)}). "
                 "Verifique se `claude` esta no PATH."
             )
             self.output_queue.put({"type": "error", "text": self.error})
@@ -433,12 +546,24 @@ class ChatLivreSession:
         return True
 
     def send_message(self, texto: str) -> None:
-        if not self.proc or not self._alive:
-            self.output_queue.put({"type": "error", "text": "Sessao nao esta ativa."})
-            return
-
-        # Persiste a mensagem do user antes de enviar
+        # Persiste a pergunta ANTES de qualquer coisa. Se a sessao tiver morrido
+        # (servidor reiniciado, subprocesso encerrado), a pergunta do Defensor
+        # nao pode simplesmente evaporar — ele reabria a conversa e a encontrava
+        # vazia, como se nada tivesse sido dito.
         _adicionar_mensagem(self.paj_norm, self.conv_id, "user", texto)
+
+        if not self.proc or not self._alive:
+            # Tenta ressuscitar em vez de so' reclamar: o caso comum e' o
+            # servidor ter sido reiniciado com a aba aberta.
+            if not self.start():
+                self.output_queue.put({
+                    "type": "error",
+                    "text": "Sessao nao estava ativa e nao consegui reabri-la. "
+                            "Sua pergunta foi salva na conversa — recarregue a "
+                            "pagina e envie de novo.",
+                })
+                return
+
         self.output_queue.put({"type": "user", "text": texto})
 
         if not self._contexto_injetado:
@@ -494,6 +619,14 @@ class ChatLivreSession:
                     self.output_queue.put({"type": "text", "text": text + "\n"})
             self.proc.wait()
             self._alive = False
+            # Falha de infraestrutura do CLI (login expirado, limite de uso) vem
+            # como texto solto no stdout + codigo != 0. Sem detectar, a conversa
+            # encerrava "normalmente" e o erro em ingles aparecia como resposta.
+            falha = detectar_falha_cli(self.proc.returncode, self.accumulated_text)
+            if falha:
+                self.status = "error"
+                self.error = falha
+                self.output_queue.put({"type": "error", "text": falha})
             self.output_queue.put({"type": "done"})
         except Exception as e:
             self.output_queue.put({"type": "error", "text": str(e)})
@@ -527,6 +660,19 @@ class ChatLivreSession:
             return None
 
         if etype == "result":
+            # Falha de infraestrutura do CLI (login expirado, limite de uso) chega
+            # aqui como texto do `result`, com a sessao ainda viva. Sem detectar,
+            # a conversa gravava o erro em ingles como se fosse resposta do Claude.
+            bruto = event.get("result", "")
+            if not isinstance(bruto, str):
+                bruto = ""
+            falha = detectar_falha_cli(0, f"{self.accumulated_text}\n{bruto}")
+            if falha:
+                self.status = "error"
+                self.error = falha
+                self.last_action = "falha de autenticação/limite do Claude CLI"
+                return {"type": "error", "text": falha}
+
             if self.accumulated_text.strip():
                 _adicionar_mensagem(
                     self.paj_norm, self.conv_id, "assistant", self.accumulated_text

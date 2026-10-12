@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="dark">
+<html lang="pt-BR" data-theme="sisdpu">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}1º Ofício Geral{% endblock %} — DPU Osasco/SP</title>
+    <title>{% block title %}{{ oficio_titulo }}{% endblock %} — {{ oficio_unidade }}</title>
 
     <!-- Tailwind + DaisyUI via CDN -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.23/dist/full.min.css" rel="stylesheet" type="text/css" />
@@ -15,6 +15,123 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 
     <style>
+        /* ================= Tema "sisdpu" =================================
+           Tons medidos no pixel de telas reais do SISDPU (as capturas em
+           logs/sisdpu_debug/). O SIS roda o tema PrimeFaces "south-street"
+           sobre a folha propria da DPU, e a paleta que sai dali e':
+
+             #54576A  barra de menu e rodape          (ardosia)
+             #888BA0  barra de titulo de secao        (ardosia clara)
+             #373950  cabecalho de tabela             (ardosia escura)
+             #DEDEE8  faixa de tabela / fundo de bloco (lavanda)
+             #D9DADE  faixa superior                  (cinza)
+             #CCCCCC  borda
+             #314F92  link
+             #FFFF00  marcador, com texto vermelho #CC0000
+
+           Os valores abaixo sao esses mesmos tons em OKLCH (L% C H), que e' o
+           espaco que esta versao do DaisyUI usa — ela le `oklch(var(--p))`.
+           Triplas em HSL entram como cor invalida e a tela inteira cai para o
+           escuro, que foi o que aconteceu na primeira tentativa.         */
+        :root[data-theme="sisdpu"] {
+            --p: 46.13% 0.031 278.06;    --pc: 100% 0 0;    /* ardosia */
+            --s: 64.14% 0.0315 279.04;   --sc: 100% 0 0;    /* secao   */
+            --a: 44.05% 0.1159 264.09;   --ac: 100% 0 0;    /* link    */
+            --n: 35.28% 0.04 280.28;     --nc: 100% 0 0;    /* tabela  */
+            --b1: 100% 0 0;
+            --b2: 90.35% 0.0135 286.13;
+            /* O fundo da pagina e' o cinza claro do topo do SIS (#D9DADE),
+               nao o #CCCCCC da borda: body usa base-300, e o cinza de borda
+               como fundo de tela inteira pesa demais. A borda continua
+               #CCCCCC nas regras abaixo, onde ela de fato aparece. */
+            --b3: 88.88% 0.0055 274.96;
+            --bc: 28.91% 0 0;
+            --in: 44.05% 0.1159 264.09; --inc: 100% 0 0;
+            --su: 52.34% 0.1347 144.17; --suc: 100% 0 0;
+            --wa: 51.59% 0.1079 76.98;  --wac: 100% 0 0;
+            --er: 53.08% 0.2178 29.23;  --erc: 100% 0 0;
+            /* O SISDPU e' de cantos retos; so' um raio minimo para nao
+               ficar duro demais numa tela de 1920. */
+            --rounded-box: 0.25rem;
+            --rounded-btn: 0.2rem;
+            --rounded-badge: 0.2rem;
+            --tab-radius: 0.2rem;
+            --border-btn: 1px;
+        }
+
+        /* Cabecalho de tabela como no SIS: ardosia escura, texto branco. */
+        [data-theme="sisdpu"] .table thead th {
+            background-color: #373950;
+            color: #fff;
+            font-weight: 600;
+            text-transform: none;
+            border-bottom: 1px solid #CCCCCC;
+        }
+        [data-theme="sisdpu"] .table tbody tr:nth-child(even) { background-color: #F4F4F8; }
+        [data-theme="sisdpu"] .table tbody tr:hover { background-color: #DEDEE8; }
+        [data-theme="sisdpu"] .table { border: 1px solid #CCCCCC; }
+
+        /* Barra lateral: o SIS usa a ardosia no topo e no menu. */
+        [data-theme="sisdpu"] .sidebar { background-color: #54576A; color: #fff; }
+        [data-theme="sisdpu"] .sidebar a { color: #E8E8EF; }
+        [data-theme="sisdpu"] .sidebar .menu a:hover { background-color: #888BA0; color: #fff; }
+        [data-theme="sisdpu"] .sidebar .menu a.active { background-color: #373950; color: #fff; }
+        [data-theme="sisdpu"] .sidebar .text-primary { color: #fff !important; }
+
+        /* Texto secundario: o painel foi desenhado para fundo escuro, onde
+           base-content a 30-50% ainda le'. Sobre o branco do SIS o mesmo
+           texto lava (2,2:1). Aqui o piso sobe, mantendo a hierarquia entre
+           os niveis. Medido: todos passam de 3:1 sobre #FFF e sobre #DEDEE8. */
+        [data-theme="sisdpu"] .text-base-content\/20 { color: oklch(var(--bc) / 0.55); }
+        [data-theme="sisdpu"] .text-base-content\/30 { color: oklch(var(--bc) / 0.60); }
+        [data-theme="sisdpu"] .text-base-content\/40 { color: oklch(var(--bc) / 0.66); }
+        [data-theme="sisdpu"] .text-base-content\/50 { color: oklch(var(--bc) / 0.72); }
+        [data-theme="sisdpu"] .text-base-content\/60 { color: oklch(var(--bc) / 0.78); }
+        [data-theme="sisdpu"] .text-base-content\/70 { color: oklch(var(--bc) / 0.84); }
+
+        /* Texto secundario da barra lateral. Ela e' ardosia nos dois temas,
+           entao o tom vem do branco, nao de base-content (que no tema do
+           SIS e' escuro e sumiria ali). */
+        .sidebar-apagado { color: rgba(255, 255, 255, .72); }
+
+        /* Link no corpo: o navy do SIS. */
+        [data-theme="sisdpu"] .link, [data-theme="sisdpu"] a.link-hover:hover { color: #314F92; }
+
+        /* Marcador do SIS: vermelho sobre amarelo. */
+        .sis-marcador {
+            background-color: #FFFF00; color: #CC0000;
+            font-weight: 700; padding: 0 .25rem;
+        }
+
+        /* Painel de conteudo: corpo branco sobre borda cinza, como as secoes
+           da tela do PAJ no SIS (que nao usam cartao colorido). */
+        [data-theme="sisdpu"] .sis-painel {
+            background-color: #fff;
+            border-color: #CCCCCC;
+        }
+
+        /* Abas no desenho do SIS: a selecionada e' a ardosia cheia. */
+        [data-theme="sisdpu"] .tabs .tab { color: #54576A; }
+        [data-theme="sisdpu"] .tabs .tab:hover { background-color: #DEDEE8; }
+        [data-theme="sisdpu"] .tabs .tab.tab-active {
+            background-color: #54576A; color: #fff; border-color: #54576A;
+        }
+
+        /* ---- Movimentacao: teor inteiro, no desenho do SIS ---- */
+        .sis-mov { border: 1px solid #CCCCCC; border-radius: .2rem; overflow: hidden; }
+        .sis-mov + .sis-mov { margin-top: .75rem; }
+        .sis-mov-cab {
+            display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+            background-color: #888BA0; color: #fff; padding: .3rem .6rem;
+        }
+        .sis-mov-teor { padding: .6rem .75rem; }
+        .sis-mov-teor p { font-size: .82rem; line-height: 1.55; text-align: justify; }
+        .sis-mov-teor p + p { margin-top: .55rem; }
+        /* Cor fixa so' no tema do SIS; no escuro o teor herda do painel, que
+           ja' tem o par fundo/texto certo. */
+        [data-theme="sisdpu"] .sis-mov-teor { background-color: #fff; }
+        [data-theme="sisdpu"] .sis-mov-teor p { color: #2B2B2B; }
+
         /* Sidebar fixa no desktop */
         .sidebar { width: 260px; min-height: 100vh; }
         .main-content { margin-left: 260px; }
@@ -48,8 +165,8 @@
     <aside class="sidebar bg-base-200 border-r border-base-300 flex flex-col fixed top-0 left-0 z-40">
         <!-- Header -->
         <div class="p-5 border-b border-base-300">
-            <h1 class="text-xl font-bold text-primary">1º Ofício Geral</h1>
-            <p class="text-xs text-base-content/60 mt-1">2ª Categoria — DPU Osasco/SP</p>
+            <h1 class="text-xl font-bold text-primary">{{ oficio_titulo }}</h1>
+            <p class="text-xs sidebar-apagado mt-1">{{ oficio_descricao }}</p>
         </div>
 
         <!-- Nav -->
@@ -74,6 +191,16 @@
                     </a>
                 </li>
                 <li>
+                    <a href="/diligencias"
+                       class="{% if request.url.path == '/diligencias' %}active{% endif %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+                        </svg>
+                        Diligências
+                        <span id="badge-diligencias" class="badge badge-warning badge-xs" style="display:none;"></span>
+                    </a>
+                </li>
+                <li>
                     <a href="/watchlist"
                        class="{% if request.url.path == '/watchlist' %}active{% endif %}">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -95,9 +222,12 @@
         </nav>
 
         <!-- Footer -->
-        <div class="p-4 border-t border-base-300 text-xs text-base-content/40">
+        <div class="p-4 border-t border-base-300 text-xs sidebar-apagado">
             <p>Defensoria Pública da União</p>
             <p class="mt-1">v{{ app_version }}</p>
+            <button id="btn-tema" class="btn btn-ghost btn-xs mt-2 normal-case"
+                    onclick="alternarTema()"
+                    title="Alterna entre o tema do SISDPU e o escuro">tema: SISDPU</button>
         </div>
     </aside>
 
@@ -198,6 +328,38 @@
     </dialog>
 
     <script src="/static/js/app.js?v={{ app_version }}"></script>
+    <script>
+    /* Tema: "sisdpu" (tons do próprio SIS) é o padrão; "dark" continua
+       disponível. A escolha fica no navegador, por máquina. */
+    function aplicarTema(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        var b = document.getElementById('btn-tema');
+        if (b) b.textContent = 'tema: ' + (t === 'dark' ? 'escuro' : 'SISDPU');
+    }
+    function alternarTema() {
+        var atual = document.documentElement.getAttribute('data-theme');
+        var novo = atual === 'dark' ? 'sisdpu' : 'dark';
+        try { localStorage.setItem('tema', novo); } catch (e) { /* modo privado */ }
+        aplicarTema(novo);
+    }
+    (function() {
+        var t = 'sisdpu';
+        try { t = localStorage.getItem('tema') || 'sisdpu'; } catch (e) { /* idem */ }
+        aplicarTema(t);
+    })();
+    </script>
+    <script>
+    /* Quantas diligências esperam o SISDPU — o número fica no menu, para o
+       Defensor não precisar abrir a aba para lembrar que há coisa na fila. */
+    (function() {
+        var alvo = document.getElementById('badge-diligencias');
+        if (!alvo) return;
+        fetch('/api/diligencias').then(function(r) { return r.json(); }).then(function(d) {
+            var n = d.n_pendentes || 0;
+            if (n > 0) { alvo.textContent = n; alvo.style.display = ''; }
+        }).catch(function() { /* menu não quebra por causa do contador */ });
+    })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

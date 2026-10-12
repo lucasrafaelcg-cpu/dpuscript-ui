@@ -64,6 +64,7 @@ SKILL_OVERRIDES: dict[str, dict] = {
     "peticoes-iniciais":          {"label": "Petição inicial (cível)",           "areas": ["Civel", "Administrativo"],              "grupo": "Petição inicial"},
     "saude-tema-1234":            {"label": "Inicial de saúde (Tema 1234/6)",    "areas": ["Saude"],                                "grupo": "Petição inicial"},
     "saude-geral":                {"label": "Saúde — peça geral",                "areas": ["Saude"],                                "grupo": "Petição inicial"},
+    "saude-natjus":               {"label": "NATJus — buscar notas e impugnar",   "areas": ["Saude", "Civel"],                       "grupo": "Peça processual"},
     "previdenciario-geral":       {"label": "Previdenciário — inicial",          "areas": ["Previdenciario"],                       "grupo": "Petição inicial"},
     "ri-previdenciario":          {"label": "Recurso Inominado previdenciário",  "areas": ["Previdenciario"],                       "grupo": "Petição inicial"},
     "ri-pbf":                     {"label": "Recurso Inominado PBF",             "areas": ["Previdenciario"],                       "grupo": "Petição inicial"},

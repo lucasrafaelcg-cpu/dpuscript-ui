@@ -22,6 +22,7 @@ from routes.calendar import router as calendar_router
 from routes.chat import router as chat_router
 from routes.chat_livre import router as chat_livre_router
 from routes.dashboard import router as dashboard_router
+from routes.diligencias import router as diligencias_router
 from routes.docgen import router as docgen_router
 from routes.files import router as files_router
 from routes.paj import router as paj_router
@@ -33,6 +34,8 @@ from routes.triagem import router as triagem_router
 from routes.watchlist import router as watchlist_router
 from routes.pje import router as pje_router
 from services.ambiente_service import verificar_ambiente
+
+import config
 
 BASE_DIR = Path(__file__).resolve().parent
 PID_FILE = BASE_DIR / ".server.pid"
@@ -77,6 +80,10 @@ app.state.jinja = jinja2.Environment(
 )
 # Expoe a versao a todos os templates sem precisar passar no render() de cada rota
 app.state.jinja.globals["app_version"] = APP_VERSION
+# Identificacao do oficio (titulo da aba, sidebar) — configuravel via .env
+app.state.jinja.globals["oficio_titulo"] = config.OFICIO_TITULO
+app.state.jinja.globals["oficio_unidade"] = config.OFICIO_UNIDADE
+app.state.jinja.globals["oficio_descricao"] = config.OFICIO_DESCRICAO
 
 # Mapeamento de exibicao para nomes de area (foro). Os valores armazenados em
 # metadata.json vem sem acentos (parser do SISDPU); o front-end formata para
@@ -144,6 +151,15 @@ app.state.jinja.filters["data_hora_br"] = _data_hora_br
 from services.pje_service import eh_trf3_1g as _eh_trf3_1g  # noqa: E402
 
 app.state.jinja.filters["eh_trf3_1g"] = _eh_trf3_1g
+
+# Teor da movimentação em parágrafos. O SISDPU devolvia o teor com os
+# parágrafos colados; a aba Movimentações mostra o texto inteiro, então a
+# remontagem passou a importar. Regra em services/texto_mov.
+from services.texto_mov import paragrafos as _mov_paragrafos  # noqa: E402
+from services.texto_mov import rotulo as _mov_rotulo  # noqa: E402
+
+app.state.jinja.filters["mov_paragrafos"] = _mov_paragrafos
+app.state.jinja.filters["mov_rotulo"] = _mov_rotulo
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.include_router(dashboard_router)
 app.include_router(paj_router)
@@ -160,6 +176,7 @@ app.include_router(watchlist_router)
 app.include_router(pipeline_monitor_router)
 app.include_router(pje_router)
 app.include_router(triagem_router)
+app.include_router(diligencias_router)
 
 # Healthcheck de dependencias externas — expoe em app.state.ambiente pra
 # o dashboard renderizar banner quando algo falta.

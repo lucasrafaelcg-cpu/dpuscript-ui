@@ -18,6 +18,7 @@ Streaming:
 from __future__ import annotations
 
 import asyncio
+import queue as _queue
 
 from fastapi import APIRouter, Body, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -119,9 +120,21 @@ async def api_stats():
 # WebSocket
 # ---------------------------------------------------------------------------
 
+# Um socket por conversa. Recarregar a pagina (ou clicar na conversa na lista)
+# abre um socket novo sem que o antigo tenha morrido; com dois handlers vivos,
+# os DOIS drenavam a MESMA `output_queue` e os eventos da resposta se dividiam
+# entre eles — o navegador, que escuta so' um, perdia parte (ou tudo) da
+# resposta. Aqui o socket novo assume e o antigo se retira.
+_ws_ativo: dict[str, object] = {}
+
+
 @router.websocket("/ws/chat-livre/{conv_id}")
 async def chat_livre_ws(websocket: WebSocket, conv_id: str):
     await websocket.accept()
+    _ws_ativo[conv_id] = websocket
+
+    def sou_o_ativo() -> bool:
+        return _ws_ativo.get(conv_id) is websocket
 
     sess = chat_livre.get_or_create_session(conv_id)
     if sess is None:
@@ -136,17 +149,32 @@ async def chat_livre_ws(websocket: WebSocket, conv_id: str):
     try:
         async def drenar_output():
             while True:
+                # Um handler superado para de consumir a fila: senao roubaria
+                # eventos do socket que o navegador esta realmente escutando.
+                if not sou_o_ativo():
+                    return
                 try:
                     event = sess.output_queue.get_nowait()
-                    await websocket.send_json(event)
-                    if event.get("type") == "done":
-                        break
-                except Exception:
+                except _queue.Empty:
                     await asyncio.sleep(0.05)
+                    continue
+                try:
+                    await websocket.send_json(event)
+                except Exception:
+                    return  # socket morreu; quem fecha o handler e' o loop de leitura
+                # NAO encerrar no 'done'. Ele marca o fim de UM turno (ou a morte
+                # do subprocesso do Claude), nao o fim da conversa. Encerrar aqui
+                # derrubava o socket depois da primeira resposta: o front marcava
+                # `conectado = false` e a CAIXA DE TEXTO ficava desabilitada — o
+                # Defensor nao conseguia mais escrever ate abrir outra conversa.
+                # A sessao morta e' ressuscitada no proximo envio
+                # (`ChatLivreSession.send_message`).
 
         out_task = asyncio.create_task(drenar_output())
 
         while True:
+            if not sou_o_ativo():
+                break
             try:
                 data = await asyncio.wait_for(websocket.receive_json(), timeout=0.1)
                 tipo = data.get("type")
@@ -158,8 +186,9 @@ async def chat_livre_ws(websocket: WebSocket, conv_id: str):
                     chat_livre.stop_session(conv_id)
                     break
             except TimeoutError:
-                if out_task.done():
-                    break
+                # Nada chegou do navegador nesses 100ms — normal. NAO encerrar
+                # aqui por causa da drenagem: o socket precisa continuar aberto
+                # entre turnos, senao a caixa de texto do Defensor e' desabilitada.
                 continue
             except WebSocketDisconnect:
                 break
@@ -168,3 +197,8 @@ async def chat_livre_ws(websocket: WebSocket, conv_id: str):
 
     except WebSocketDisconnect:
         pass
+    finally:
+        # Libera o registro so' se este ainda for o socket ativo — se outro ja'
+        # assumiu, apagar aqui deixaria a conversa sem handler ativo.
+        if _ws_ativo.get(conv_id) is websocket:
+            _ws_ativo.pop(conv_id, None)
