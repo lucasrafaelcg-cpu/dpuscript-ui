@@ -175,6 +175,22 @@ a assessoria JÁ ENTREGOU algo (minuta, relatório, informação), leia e use;
 quando ela ainda NÃO entregou e a peça é cabível, faça você a minuta em vez de
 esperar.
 
+## TEMPO VERBAL DO DESPACHO — ato praticado vai no pretérito
+
+O despacho vira a descrição da movimentação no SISDPU, que registra o que
+FICOU FEITO. O ato praticado vai no pretérito:
+
+    "Elaborei a peça e protocolei nos autos do processo n. 0009589-98.2025.4.05.8201."
+
+e nunca "Elaboro a peça e procedo ao protocolo", que põe como intenção o que já
+se executou. Vale para elaborar, protocolar, juntar, oficiar, contatar,
+peticionar.
+
+A regra é **só para o ato praticado**. Os verbos de verificação e de decisão em
+primeira pessoa ficam no presente, que é o registro do Defensor: "Verifico
+que", "Confiro a planilha", "Entendo cabível", "Mantenho o decurso", "arquivo
+este PAJ", "tramito à CCR".
+
 ## QUEM JUNTA A PETIÇÃO — divisão de trabalho no ofício
 
 A juntada de **petição intercorrente** é do DEFENSOR, não do Cartório. O
