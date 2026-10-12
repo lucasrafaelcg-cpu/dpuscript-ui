@@ -1,0 +1,6 @@
+- [Honorários DPU — Fundo de Aparelhamento](honorarios-dpu-fundo-aparelhamento.md) — conta para depósito e as três exigências do pedido; só em cumprimento de sentença.
+- [Entrega de arquivos no OneDrive (trabalho presencial)](entrega-arquivos-onedrive-trabalho-externo.md) — onde salvar peças quando ele está na DPU e acessa por navegador.
+- [Autorização de movimentação no SISDPU](autorizacao-movimentacao-sisdpu.md) — o pedido dele já autoriza; executar direto, sem reconfirmar.
+- [Identidade nos metadados do Word](identidade-metadados-word.md) — as quatro grafias do nome dele e por que o campo "criador" engana.
+- [Inventário de modelos Word da pasta DPU](inventario-modelos-word-dpu.md) — planilha que separa os modelos dele das minutas recebidas.
+- [Quem junta a petição](juntada-peticao-quem-faz.md) — intercorrente é do Defensor; Cartório só pré-cadastro e inicial.

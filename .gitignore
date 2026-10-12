@@ -41,3 +41,14 @@ _pje_teste/
 # Copia de desenvolvimento do MCP PJe — redundante (canonico em C:\DPU\pje-mcp-trf3),
 # contem cache de sessao e backups .orig. NAO versionar; usar o pacote canonico.
 mcp_pje_trf3/
+
+# --- Dados de trabalho e descartes (nunca versionar) ---
+# Os PAJs vivem na pasta de trabalho, fora do repositorio, mas a regra fica
+# aqui para o caso de alguem clonar dentro do "Oficio Geral".
+PAJs/
+_versoes/
+.credentials.json
+*.bak
+# Saida de peca gerada pela skill de formatacao
+skills/*/saida/
+saida/
