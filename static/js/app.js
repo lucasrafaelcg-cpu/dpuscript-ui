@@ -673,7 +673,10 @@ function puxarEAnalisarPje(pajNorm) {
 /* Docgen — streaming SSE do gerar_docx.py / gerar_peticao.py */
 let _docgenSource = null;
 
-function runDocgen(pajNorm, arquivo, formato, titulo) {
+/* `aba` (opcional): para onde voltar depois de gerar. Sem ela, deduz pelo
+   nome do arquivo — "despacho*" aparece na aba Despachos, o resto em Peças,
+   que é a mesma regra de classificação do paj_service. */
+function runDocgen(pajNorm, arquivo, formato, titulo, aba) {
     let modal = document.getElementById('docgen-modal');
     let logEl = document.getElementById('docgen-log');
     let statusEl = document.getElementById('docgen-status');
@@ -714,7 +717,32 @@ function runDocgen(pajNorm, arquivo, formato, titulo) {
         closeBtn.disabled = false;
         _docgenSource.close();
         _docgenSource = null;
-        showToast(formato.toUpperCase() + ' gerado com sucesso', 'success');
+
+        // Geracao que terminou com aviso/erro NAO recarrega: o arquivo pode
+        // nao ter saido, e recarregar levaria embora o log, que e' a unica
+        // pista do que houve.
+        var log = logEl.textContent || '';
+        if (/\[AVISO\]|\[ERRO\]|Traceback/.test(log)) {
+            statusEl.textContent = 'concluído com aviso';
+            statusEl.className = 'badge badge-sm badge-warning';
+            showToast('Terminou com aviso — leia o log antes de fechar', 'warning');
+            return;
+        }
+
+        showToast(formato.toUpperCase() + ' gerado — abrindo a lista', 'success');
+
+        // Volta para a aba onde o arquivo aparece, ja' recarregada. Sem isso
+        // era preciso fechar a caixa, atualizar a pagina e clicar na aba.
+        var destino = aba;
+        if (!destino) {
+            var base = String(arquivo).split('/').pop();
+            destino = /^despacho/i.test(base) ? 'despachos' : 'pecas_jud';
+        }
+        setTimeout(function() {
+            var u = new URL(window.location.href);
+            u.searchParams.set('tab', destino);
+            window.location.replace(u.toString());
+        }, 1200);
     });
 
     _docgenSource.onerror = function() {

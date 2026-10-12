@@ -732,11 +732,11 @@
                                 <button class="btn btn-ghost btn-xs"
                                         @click="verTxt('{{ paj_norm }}', '{{ p.caminho }}', '{{ p.nome|e }}')">Ler</button>
                                 <button class="btn btn-info btn-xs btn-outline"
-                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'docx', 'Gerar DOCX — {{ p.nome|e }}')">
+                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'docx', 'Gerar DOCX — {{ p.nome|e }}', 'pecas_jud')">
                                     DOCX
                                 </button>
                                 <button class="btn btn-error btn-xs btn-outline"
-                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'pdf', 'Gerar PDF — {{ p.nome|e }}')">
+                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'pdf', 'Gerar PDF — {{ p.nome|e }}', 'pecas_jud')">
                                     PDF
                                 </button>
                                 {% else %}
@@ -817,11 +817,11 @@
                                     Pôr na fila
                                 </button>
                                 <button class="btn btn-info btn-xs btn-outline"
-                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'docx', 'Gerar DOCX — {{ p.nome|e }}')">
+                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'docx', 'Gerar DOCX — {{ p.nome|e }}', 'despachos')">
                                     DOCX
                                 </button>
                                 <button class="btn btn-error btn-xs btn-outline"
-                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'pdf', 'Gerar PDF — {{ p.nome|e }}')">
+                                        onclick="runDocgen('{{ paj_norm }}', '{{ p.caminho }}', 'pdf', 'Gerar PDF — {{ p.nome|e }}', 'despachos')">
                                     PDF
                                 </button>
                                 <button class="btn btn-warning btn-xs"

@@ -80,6 +80,23 @@ app.state.jinja = jinja2.Environment(
 )
 # Expoe a versao a todos os templates sem precisar passar no render() de cada rota
 app.state.jinja.globals["app_version"] = APP_VERSION
+
+
+def _versao_estatico(rel: str) -> str:
+    """Token de cache para um arquivo de /static, pela data de modificacao.
+
+    O `?v={{ app_version }}` que havia aqui so' mudava quando a versao do
+    painel mudava, o que quase nunca acontece: editar `app.js` NAO invalidava
+    o cache do navegador, e a correcao so' chegava com Ctrl+F5. Foi assim que
+    uma mudanca em `runDocgen` ficou sem efeito em 13/10/2026.
+    """
+    try:
+        return str(int((BASE_DIR / "static" / rel).stat().st_mtime))
+    except OSError:
+        return APP_VERSION
+
+
+app.state.jinja.globals["versao_estatico"] = _versao_estatico
 # Identificacao do oficio (titulo da aba, sidebar) — configuravel via .env
 app.state.jinja.globals["oficio_titulo"] = config.OFICIO_TITULO
 app.state.jinja.globals["oficio_unidade"] = config.OFICIO_UNIDADE
