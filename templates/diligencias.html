@@ -274,10 +274,64 @@ function diligenciasApp() {
             this.carregar();
         },
 
+        /* Sai da fila na hora, sem perguntar: o arquivo continua no PAJ e
+           nada é gravado no SISDPU, então não há o que confirmar. O toast
+           oferece Desfazer por alguns segundos, para o clique errado. */
         async remover(it) {
-            if (!confirm('Tirar "' + it.titulo + '" da fila?\n\n' +
-                         'O arquivo continua no PAJ; só sai desta lista.')) return;
             await fetch('/api/diligencias/' + it.id, {method: 'DELETE'});
+            this.itens = this.itens.filter(x => x.id !== it.id);
+            this._toastDesfazer(it);
+            this.carregar();
+        },
+
+        _toastDesfazer(it) {
+            const cont = document.getElementById('toast-container');
+            if (!cont) return;
+            const el = document.createElement('div');
+            el.className = 'alert alert-info text-sm py-2 px-4 shadow-lg flex items-center gap-3';
+            const txt = document.createElement('span');
+            // textContent, não innerHTML: o título vem de nome de arquivo.
+            txt.textContent = it.titulo + ' — fora da fila';
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-xs btn-ghost';
+            btn.textContent = 'Desfazer';
+            const self = this;
+            btn.onclick = function() { el.remove(); self._repor(it); };
+            el.appendChild(txt);
+            el.appendChild(btn);
+            cont.appendChild(el);
+            setTimeout(function() {
+                el.style.transition = 'opacity 0.3s';
+                el.style.opacity = '0';
+                setTimeout(function() { el.remove(); }, 300);
+            }, 6000);
+        },
+
+        /* Repõe o item e devolve o que ele tinha: marcação e visibilidade.
+           O registro nasce sempre desmarcado, então sem isto o Desfazer
+           devolveria um item diferente do que saiu. */
+        async _repor(it) {
+            const r = await fetch('/api/diligencias', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({paj_norm: it.paj_norm, arquivo: it.arquivo,
+                                      tipo: it.tipo, titulo: it.titulo}),
+            });
+            const d = await r.json();
+            if (!d.ok) {
+                showToast(d.erro || 'não consegui repor', 'error');
+                return;
+            }
+            if (it.marcado) {
+                await fetch('/api/diligencias/' + d.id + '/marcar', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({marcado: true})});
+            }
+            if (it.mostrar_na_internet) {
+                await fetch('/api/diligencias/' + d.id + '/visibilidade', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({visivel: true})});
+            }
             this.carregar();
         },
 
