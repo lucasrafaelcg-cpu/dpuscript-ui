@@ -767,8 +767,9 @@
                 <h3 class="text-lg font-semibold mb-1">Despachos SISDPU</h3>
                 <p class="text-xs text-base-content/40">
                     Despachos administrativos para lançamento na movimentação do SISDPU.
-                    O despacho sugerido pela análise nasce aqui sozinho; “Pôr na fila”
-                    manda para a aba Diligências, onde vários vão ao SIS num login só.
+                    O despacho sugerido pela análise é gravado aqui, mas não vai a lugar
+                    nenhum sozinho: revise e, estando certo, use “Pôr na fila” — é de lá
+                    que vários seguem ao SIS num login só.
                 </p>
             </div>
             {% if dados.situacao %}
@@ -947,7 +948,7 @@ function extrairDespachoDaAnalise(pajNorm, botao) {
     fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/despacho-firac', {
         method: 'POST',
         headers: {'Content-Type': 'application/json; charset=utf-8'},
-        body: JSON.stringify({enfileirar: true})
+        body: JSON.stringify({enfileirar: false})
     }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.ok && d.motivo === 'criado') {
             showToast('Despacho criado: ' + d.arquivo + ' — recarregando', 'success');

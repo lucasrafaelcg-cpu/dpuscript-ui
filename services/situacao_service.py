@@ -402,17 +402,17 @@ async def _gerar_situacao_exclusivo(paj_norm: str, pasta, prompt: str,
     gerar_prompt_max(paj_norm)
 
     # Fase 3 do fluxo: a seção 4 da análise vira despacho de verdade, na aba
-    # Despachos, e entra na fila de Diligências. Best-effort: falha aqui não
-    # pode derrubar a análise, que é o produto caro.
+    # Despachos. Best-effort: falha aqui não pode derrubar a análise, que é o
+    # produto caro.
+    #
+    # NÃO entra na fila de Diligências. Decisão do Defensor em 12/10/2026: a
+    # fila é só o que ele já revisou e aprovou na tela do PAJ. Quem põe lá é o
+    # botão "Pôr na fila", nunca o painel por conta própria.
     despacho = {}
     try:
-        from services import diligencias_service, despacho_firac
+        from services import despacho_firac
 
         despacho = despacho_firac.criar_do_firac(paj_norm)
-        if despacho.get("ok") and despacho.get("motivo") == "criado":
-            diligencias_service.registrar(
-                paj_norm, despacho["arquivo"], diligencias_service.TIPO_DESPACHO,
-                titulo="Despacho sugerido na análise")
     except Exception as e:
         logger.warning("despacho do FIRAC falhou em %s: %s", paj_norm, e)
 

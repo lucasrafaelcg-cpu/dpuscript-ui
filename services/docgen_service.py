@@ -131,13 +131,10 @@ async def gerar_artefato(
         try:
             shutil.copy2(origem, destino)
             yield f"[docgen] arquivo copiado para o PAJ: {destino.name}\n"
-            # Fase 4: a peca entra na fila de Diligencias, para ir ao SISDPU
-            # junto com as outras num login so.
-            with contextlib.suppress(Exception):
-                from services import diligencias_service as _ds
-
-                _ds.registrar(paj_norm, destino.name, _ds.TIPO_PECA)
-                yield "[diligencias] na fila para anexar no SISDPU\n"
+            # A peca NAO entra sozinha na fila de Diligencias. Decisao do
+            # Defensor em 12/10/2026: ele revisa na tela do PAJ e, estando
+            # certa, usa o botao "Por na fila". O painel nao decide por ele.
+            yield "[docgen] revise na aba Pecas e use 'Por na fila' para o SISDPU\n"
             # Sucesso: registra no historico do PAJ (best-effort).
             with contextlib.suppress(Exception):
                 historico.registrar(

@@ -130,7 +130,10 @@ async def extrair_despacho_da_analise(paj_norm: str, corpo: dict = Body(default=
     if not res.get("ok"):
         return JSONResponse(res, status_code=400)
 
-    if corpo.get("enfileirar", True):
+    # Enfileirar é opt-in: o padrão é só criar o arquivo, para o Defensor
+    # revisar na aba Despachos. Quem decide o que vai ao SISDPU é ele, pelo
+    # botão "Pôr na fila".
+    if corpo.get("enfileirar") is True:
         ds.registrar(paj_norm, res["arquivo"], ds.TIPO_DESPACHO,
                      titulo="Despacho sugerido na análise")
     return JSONResponse(res)
