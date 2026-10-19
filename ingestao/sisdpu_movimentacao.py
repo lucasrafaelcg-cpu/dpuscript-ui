@@ -47,6 +47,8 @@ Mapa da tela (verificado em 2026-09-02, SISDPU producao):
 
 from __future__ import annotations
 
+import contextlib
+import datetime
 import logging
 import re
 from pathlib import Path
@@ -224,6 +226,30 @@ async def _selecionar_fase(page, fase_texto: str) -> str:
     return achado["text"]
 
 
+async def _guardar_prova(page, motivo: str) -> str:
+    """Salva tela e HTML do modal quando uma trava reprova. Devolve a pasta.
+
+    Sem isso, a falha chegava como uma frase no log e nao havia como saber o
+    que o SIS mostrava naquele instante — foi o que custou uma noite de
+    diagnostico em 19/10/2026.
+    """
+    try:
+        carimbo = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        destino = Path("logs") / "movimentacao_falhas" / f"{carimbo}_{motivo}"
+        destino.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(Exception):
+            await page.screenshot(path=str(destino / "tela.png"), full_page=True)
+        with contextlib.suppress(Exception):
+            html = await page.evaluate(
+                """() => {const d = document.querySelector('[id$="dlgModalArquivos"]');
+                          return d ? d.outerHTML : document.body.innerHTML.slice(0, 200000);}"""
+            )
+            (destino / "modal.html").write_text(html, encoding="utf-8")
+        return str(destino)
+    except Exception as e:  # prova e' auxiliar: nunca mascara o erro real
+        return f"(nao consegui salvar a prova: {e})"
+
+
 async def _anexar_arquivos(
     page, arquivos: list[Path], tipo_arquivo: str = TIPO_ARQUIVO_PETICOES
 ) -> list[str]:
@@ -263,25 +289,50 @@ async def _anexar_arquivos(
     await sc._wait_pf_ajax(page, timeout=20000)
     await page.wait_for_timeout(1500)
 
-    await page.set_input_files(
-        f'[id="{FORM}:arquivosFase_input"]', [str(a) for a in arquivos]
-    )
-    await page.wait_for_timeout(3000)
-    await sc._wait_pf_ajax(page, timeout=60000)
-    await page.wait_for_timeout(2500)
+    async def _ler_fila() -> str:
+        return await page.evaluate(
+            """() => {
+                const d = document.getElementById('formHonorario:arquivosSalvar_data');
+                return d ? (d.innerText || '') : '';
+            }"""
+        )
 
-    # A fila tem de ter recebido os arquivos antes de tentar confirmar.
-    fila = await page.evaluate(
-        """() => {
-            const d = document.getElementById('formHonorario:arquivosSalvar_data');
-            return d ? (d.innerText || '') : '';
-        }"""
-    )
-    faltando = [a.name for a in arquivos if a.name not in fila]
+    async def _enviar_e_esperar(limite_s: int) -> list[str]:
+        """Manda os arquivos e ESPERA a fila do modal receber, ate `limite_s`.
+
+        A versao anterior esperava um tempo fixo (3s + ajax + 2,5s) e conferia
+        uma vez so'. O upload do PrimeFaces e' assincrono e, com o SIS lento,
+        a fila ainda estava vazia na hora da conferencia: em 19/10/2026 quatro
+        PDFs seguidos abortaram com "Fila: 'Nenhum arquivo anexado'", e o mesmo
+        arquivo subiu em menos de 3s quando repetido a mao. Espera ativa
+        resolve o caso lento sem atrasar o caso rapido.
+        """
+        await page.set_input_files(
+            f'[id="{FORM}:arquivosFase_input"]', [str(a) for a in arquivos]
+        )
+        esperados = [a.name for a in arquivos]
+        for _ in range(limite_s):
+            await page.wait_for_timeout(1000)
+            fila_txt = await _ler_fila()
+            if all(n in fila_txt for n in esperados):
+                with contextlib.suppress(Exception):
+                    await sc._wait_pf_ajax(page, timeout=20000)
+                return []
+        return [n for n in esperados if n not in (await _ler_fila())]
+
+    faltando = await _enviar_e_esperar(30)
     if faltando:
+        # Segunda tentativa: a fila esta' vazia, entao reenviar nao duplica.
+        _log.warning("fila do modal vazia apos 30s; reenviando %s", faltando)
+        faltando = await _enviar_e_esperar(20)
+
+    if faltando:
+        fila = await _ler_fila()
+        prova = await _guardar_prova(page, "fila-vazia")
         raise MovimentacaoAbortada(
-            f"os arquivos {faltando} nao entraram na fila do modal — abortado. "
-            f"Fila: {_norm(fila)[:300]!r}"
+            f"os arquivos {faltando} nao entraram na fila do modal, nem apos "
+            f"50s e um reenvio — abortado. Fila: {_norm(fila)[:200]!r}. "
+            f"Tela e HTML do modal em {prova}"
         )
 
     # Cada clique em "Anexar" consome a linha 0 da fila via ajax e a manda para
@@ -331,9 +382,11 @@ async def _anexar_arquivos(
         visto = a.name in tabela or Path(a.name).stem[:60].upper() in tabela.upper()
         (confirmados if visto else faltando).append(a.name)
     if faltando:
+        prova = await _guardar_prova(page, "tabela-sem-anexo")
         raise MovimentacaoAbortada(
             f"os arquivos {faltando} nao apareceram em tabelaArquivos apos o "
-            f"'Anexar' — abortado. Tabela: {_norm(tabela)[:300]!r}"
+            f"'Anexar' — abortado. Tabela: {_norm(tabela)[:200]!r}. "
+            f"Tela e HTML do modal em {prova}"
         )
     _log.info("anexos confirmados em tabelaArquivos: %s", confirmados)
 
