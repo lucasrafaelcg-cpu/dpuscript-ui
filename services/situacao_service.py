@@ -103,12 +103,40 @@ async def _worker_fila() -> None:
         try:
             logger.info("[situacao-auto] analisando %s ...", paj_norm)
             res = await gerar_situacao(paj_norm)
+            from services import situacao_estado
+
             if res.get("ok"):
                 logger.info("[situacao-auto] %s pronta (%s)", paj_norm,
                             res.get("gerada_em", ""))
+                situacao_estado.limpar_falha(paj_norm)
             else:
-                logger.warning("[situacao-auto] %s falhou: %s", paj_norm,
-                               res.get("erro", ""))
+                erro = res.get("erro", "")
+                logger.warning("[situacao-auto] %s falhou: %s", paj_norm, erro)
+                # A falha passa a FICAR REGISTRADA. Antes ia so' para o log, e
+                # o painel seguia exibindo a analise antiga como se estivesse
+                # em dia — foram 30 falhas em 27 PAJs sem nenhum sinal na tela.
+                situacao_estado.registrar_falha(paj_norm, erro)
+
+                # Sessao do Claude CLI expirada derruba TODAS as analises da
+                # fila, uma a uma, em um segundo cada. Esvazia a fila e para:
+                # insistir so' multiplica a mesma falha (21 num dia so', em
+                # 14/10/2026). Os PAJs ficam marcados e voltam no "Reanalisar".
+                if "autentica" in erro.lower() or "login" in erro.lower():
+                    restantes = 0
+                    while True:
+                        try:
+                            outro = _fila_auto.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        restantes += 1
+                        with _lock:
+                            _na_fila.discard(outro)
+                        situacao_estado.registrar_falha(outro, erro)
+                    logger.error(
+                        "[situacao-auto] sessao do Claude CLI invalida — fila "
+                        "interrompida (%d PAJ(s) adiados). Rode login-claude.bat "
+                        "e reanalise pelo painel.", restantes)
+                    return
         except Exception:
             logger.exception("[situacao-auto] erro inesperado em %s", paj_norm)
 

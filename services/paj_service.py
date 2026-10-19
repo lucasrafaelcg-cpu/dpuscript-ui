@@ -47,6 +47,18 @@ IGNORAR = {
     "historico.jsonl",
 }
 
+def _estado_situacao(paj_norm: str, metadata: dict) -> dict:
+    """Estado da analise FIRAC. Best-effort: nunca derruba a tela do PAJ."""
+    try:
+        from services import situacao_estado
+
+        return situacao_estado.estado(paj_norm, metadata)
+    except Exception:
+        return {"tem_analise": False, "atrasada": False, "falha": None,
+                "dias_atraso": 0, "n_movs_depois": 0,
+                "gerada_em": "", "ultima_mov": ""}
+
+
 PREFIXOS_DESPACHO = ("despacho",)
 
 PREFIXOS_PECA_JUDICIAL = (
@@ -428,6 +440,9 @@ def ler_paj(paj_norm: str) -> dict | None:
         "prompt_max": prompt_max,
         "situacao": situacao,
         "situacao_em": situacao_em,
+        # Análise em dia? Última tentativa falhou? Sem isto a tela mostrava a
+        # análise antiga sem distinguir "atual" de "a atualização falhou".
+        "situacao_estado": _estado_situacao(paj_norm, metadata),
         "pecas": [],
         "pecas_por_categoria": [],
         "decisoes": [],

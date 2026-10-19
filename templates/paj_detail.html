@@ -871,7 +871,40 @@
             </div>
         </div>
 
+        {# A análise antiga continua à vista, mas deixa de se passar por atual:
+           se o PAJ se moveu depois dela, ou se a última tentativa de atualizar
+           falhou, o aviso vem antes do texto. #}
+        {% set est = dados.situacao_estado or {} %}
         {% if dados.situacao %}
+        {% if est.falha %}
+        <div class="alert alert-error mb-3 text-xs items-start">
+            <div>
+                <strong>A última atualização desta análise falhou</strong>
+                em {{ est.falha.em | data_hora_br }}{% if est.falha.tentativas and est.falha.tentativas > 1 %}
+                ({{ est.falha.tentativas }} tentativas){% endif %}.
+                O texto abaixo é o da análise anterior.
+                <div class="mt-1 opacity-80 font-mono">{{ est.falha.erro }}</div>
+                {% if 'autentica' in (est.falha.erro or '')|lower %}
+                <div class="mt-1">
+                    Rode <code>login-claude.bat</code> na pasta do painel e clique em
+                    <strong>Atualizar análise</strong>.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% elif est.atrasada %}
+        <div class="alert alert-warning mb-3 text-xs items-start">
+            <div>
+                <strong>Análise desatualizada.</strong>
+                O PAJ recebeu {{ est.n_movs_depois }} movimentação{{ 'ões' if est.n_movs_depois != 1 else '' }}
+                depois dela — a mais recente em {{ est.ultima_mov | data_br }},
+                e a análise é de {{ est.gerada_em | data_br }}
+                ({{ est.dias_atraso }} dia{{ 's' if est.dias_atraso != 1 else '' }} atrás).
+                Clique em <strong>Atualizar análise</strong> para refazer.
+            </div>
+        </div>
+        {% endif %}
+
         <div id="situacao-content" class="prose prose-sm prose-invert max-w-none">
             <pre class="whitespace-pre-wrap text-sm text-base-content/90 bg-base-300 p-4 rounded-lg max-h-[60vh] overflow-y-auto">{{ dados.situacao }}</pre>
         </div>
