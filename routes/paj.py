@@ -87,6 +87,21 @@ async def lote_contexto(corpo: dict = Body(default={})):
     return JSONResponse({"ok": True, **res})
 
 
+@router.post("/api/paj/{paj_norm}/descricao-movimentacao", response_class=JSONResponse)
+async def descricao_movimentacao(paj_norm: PajNorm, corpo: dict = Body(default={})):
+    """Sugere a descricao da movimentacao para a peca `arquivo` (relativo ao PAJ).
+
+    So' LEITURA: nao toca no SISDPU. O texto volta para o Defensor revisar
+    antes de anexar. Corpo: {arquivo}
+    """
+    from services import descricao_movimentacao_service as dms
+
+    arquivo = str(corpo.get("arquivo") or "")
+    if not arquivo:
+        return JSONResponse({"ok": False, "erro": "arquivo ausente"}, status_code=400)
+    return JSONResponse(await dms.gerar_descricao(paj_norm, arquivo))
+
+
 @router.post("/api/paj/{paj_norm}/movimentar", response_class=JSONResponse)
 async def movimentar_paj(paj_norm: PajNorm, corpo: dict = Body(default={})):
     """ESCRITA no SISDPU: inclui movimentacao no PAJ (com anexo opcional).

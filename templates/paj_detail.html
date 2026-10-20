@@ -965,6 +965,31 @@
     <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
 </dialog>
 
+<!-- Descricao da movimentacao: sugerida pelo Claude a partir do .txt da peca,
+     revisada pelo Defensor antes de ir para o SISDPU. -->
+<dialog id="mov-modal" class="modal">
+    <div class="modal-box max-w-2xl">
+        <h3 class="font-bold text-lg">Anexar no SISDPU</h3>
+        <p id="mov-modal-alvo" class="text-sm opacity-70 mt-1"></p>
+        <p class="text-sm mt-3">Descrição da movimentação (até 5 linhas):</p>
+        <div id="mov-modal-gerando" class="flex items-center gap-2 text-sm opacity-70 my-3">
+            <span class="loading loading-spinner loading-sm"></span>
+            gerando o resumo da peça…
+        </div>
+        <textarea id="mov-modal-texto" rows="6"
+                  class="textarea textarea-bordered w-full text-sm leading-relaxed mt-1"
+                  spellcheck="true" style="display:none;"></textarea>
+        <p id="mov-modal-aviso" class="text-xs text-warning mt-1"></p>
+        <p class="text-xs opacity-70 mt-2">
+            Fase: Petição diversa com conteúdo jurídico. A movimentação não pode ser removida depois.
+        </p>
+        <div class="modal-action">
+            <button id="mov-modal-cancelar" class="btn btn-sm btn-ghost">Cancelar</button>
+            <button id="mov-modal-ok" class="btn btn-sm btn-warning" disabled>Anexar no SISDPU</button>
+        </div>
+    </div>
+</dialog>
+
 {% endblock %}
 
 {% block scripts %}
@@ -1027,6 +1052,73 @@ function porNaFila(pajNorm, caminho, tipo, nome, botao) {
     });
 }
 
+/* Uma linha da descricao = um paragrafo no editor do SISDPU. */
+function descricaoParaHtml(texto) {
+    return texto.split(/\r?\n/)
+        .map(function (l) { return l.trim(); })
+        .filter(function (l) { return l; })
+        .map(function (l) {
+            return '<p>' + l.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;') + '</p>';
+        })
+        .join('');
+}
+
+/* Abre a janela de anexacao, pede ao painel a descricao sugerida e devolve
+   o texto revisado (Anexar) ou null (Cancelar / fechar). */
+function pedirDescricaoMovimentacao(pajNorm, caminho, nome) {
+    var dlg = document.getElementById('mov-modal');
+    var area = document.getElementById('mov-modal-texto');
+    var gerando = document.getElementById('mov-modal-gerando');
+    var aviso = document.getElementById('mov-modal-aviso');
+    var btnOk = document.getElementById('mov-modal-ok');
+    var btnCancelar = document.getElementById('mov-modal-cancelar');
+
+    document.getElementById('mov-modal-alvo').textContent = nome + ' → ' + pajNorm;
+    area.value = '';
+    area.style.display = 'none';
+    gerando.style.display = '';
+    aviso.textContent = '';
+    btnOk.disabled = true;
+    dlg.showModal();
+
+    fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/descricao-movimentacao', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json; charset=utf-8'},
+        body: JSON.stringify({arquivo: caminho})
+    })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            area.value = d.descricao || '';
+            if (!d.ok) aviso.textContent = 'Resumo automático indisponível (' +
+                (d.aviso || d.erro || 'erro') + '). Complete à mão.';
+        })
+        .catch(function (e) {
+            aviso.textContent = 'Resumo automático indisponível (' + e + '). Escreva à mão.';
+        })
+        .finally(function () {
+            gerando.style.display = 'none';
+            area.style.display = '';
+            btnOk.disabled = false;
+            area.focus();
+        });
+
+    return new Promise(function (resolve) {
+        function fim(valor) {
+            btnOk.onclick = btnCancelar.onclick = dlg.onclose = null;
+            if (dlg.open) dlg.close();
+            resolve(valor);
+        }
+        btnOk.onclick = function () {
+            var t = area.value.trim();
+            if (!t) { aviso.textContent = 'A descrição não pode ficar vazia.'; return; }
+            fim(t);
+        };
+        btnCancelar.onclick = function () { fim(null); };
+        dlg.onclose = function () { fim(null); };   // Esc
+    });
+}
+
 function anexarSisdpu(pajNorm, caminho, nome) {
     return {
         enviando: false,
@@ -1035,17 +1127,14 @@ function anexarSisdpu(pajNorm, caminho, nome) {
 
         async anexar() {
             if (this.enviando || this.ok) return;
-            if (!confirm('Anexar "' + nome + '" ao PAJ ' + pajNorm +
-                         ' no SISDPU?\n\nFase: Petição diversa com conteúdo jurídico.\n' +
-                         'A movimentação não pode ser removida depois.')) return;
+            // A janela substitui o confirm(): mostra a descricao sugerida e so'
+            // devolve texto se o Defensor clicar em Anexar.
+            var desc = await pedirDescricaoMovimentacao(pajNorm, caminho, nome);
+            if (desc === null) return;
 
             this.enviando = true;
             this.resultado = '';
             showToast('Anexando no SISDPU… leva cerca de 1 minuto', 'info');
-
-            // descricao = nome do arquivo sem extensao (os nomes ja identificam
-            // a peca e a parte, ex.: "Manifestacao Impugnacao Laudo Clarissa Lopes")
-            var desc = nome.replace(/\.[^.]+$/, '');
 
             try {
                 var resp = await fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/movimentar', {
@@ -1053,7 +1142,7 @@ function anexarSisdpu(pajNorm, caminho, nome) {
                     headers: {'Content-Type': 'application/json; charset=utf-8'},
                     body: JSON.stringify({
                         anexos_no_paj: [caminho],
-                        descricao_html: '<p>' + desc + '</p>',
+                        descricao_html: descricaoParaHtml(desc),
                         confirmar: true
                     })
                 });

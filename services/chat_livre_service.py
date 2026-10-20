@@ -34,6 +34,7 @@ from pathlib import Path
 
 from config import OFICIO_GERAL, PAJS_DIR
 from services.chat_service import detectar_falha_cli, resolver_claude_cmd
+from services.descricao_movimentacao_service import REGRA_DESCRICAO
 from services.skills_catalog import skill_descricao, skill_valida
 
 
@@ -459,6 +460,13 @@ def _montar_prompt_inicial(paj_norm: str, skill_slug: str | None) -> str:
         "'Petição simples', 'Despacho. Impulso do paj'. Em fases de peticao o "
         "painel ja' desmarca a exibicao da descricao ao assistido na internet. "
         "Anexe de preferencia o PDF/DOCX gerado (nao o .txt).\n\n"
+        "**DESCRICAO AO ANEXAR PECA** (padrao do Defensor): "
+        f"{REGRA_DESCRICAO} Cada linha vira um `<p>` no `descricao_html`. "
+        "Ex.: `<p>Petição de Réplica minutada e protocolada no PJe.</p>"
+        "<p>Pedi a rejeição das preliminares do INSS e a procedência do "
+        "pedido de aposentadoria por incapacidade.</p><p>Sustentei que o laudo "
+        "pericial reconhece a incapacidade total e que a qualidade de segurada "
+        "foi mantida pelo período de graça.</p>`.\n\n"
         "**NOME DO ARQUIVO** (quando o Defensor pedir para salvar uma peca): "
         "inclua o NOME e o SOBRENOME da parte, no formato "
         "`<tipo da peca> <Nome Sobrenome>.txt` — ex.: "
