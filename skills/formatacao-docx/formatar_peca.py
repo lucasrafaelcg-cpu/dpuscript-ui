@@ -360,9 +360,28 @@ def processar_notas_rodape(doc, texto, banco_fontes):
 
 
 _PALAVRAS_ENDERECAMENTO = (
+    # Judiciais
     "EXCELENT", "SENHOR", "SENHORA", "DOUTOR", "DOUTORA", "JUIZ", "JUÍZO",
     "DESEMBARGADOR", "MINISTRO", "TURMA", "VARA", "TRIBUNAL", "JUIZADO",
+    # Administrativos. A DPU também peticiona fora do Judiciário — defesa em
+    # processo de apuração do INSS, recurso à JR/CRPS, requerimento a órgão —
+    # e a lista só judicial não reconhecia nada disso. Foi o que aconteceu na
+    # defesa administrativa do PAJ 2026/056-00747, endereçada "AO INSTITUTO
+    # NACIONAL DO SEGURO SOCIAL": o endereçamento caiu no corpo, com recuo de
+    # parágrafo comum, e a qualificação foi junto.
+    "INSTITUTO NACIONAL DO SEGURO SOCIAL", "INSS", "PROCESSO ADMINISTRATIVO",
+    "SUPERINTEND", "GERÊNCIA EXECUTIVA", "AGÊNCIA DA PREVIDÊNCIA",
+    "JUNTA DE RECURSOS", "CÂMARA DE JULGAMENTO", "CONSELHO DE RECURSOS",
+    "PROCURADORIA", "MINISTÉRIO", "SECRETARIA", "DELEGAD", "OUVIDORIA",
+    "PRESIDENTE", "DIRETOR", "COORDENADOR", "CHEFE", "COMISSÃO",
 )
+
+# Endereçamento que não cita nenhum órgão conhecido ainda assim se reconhece
+# pela FORMA: primeira linha, aberta por "AO/À/AOS/ÀS", em caixa alta e curta.
+# Regra estrutural, para não depender de a lista acima cobrir todo órgão do
+# Brasil.
+_RE_ENDERECAMENTO_FORMA = re.compile(
+    r"^\s*(?:AOS?|ÀS?|EXCELENT|ILUSTR|MERIT[ÍI]SSIM)\b", re.IGNORECASE)
 
 _PALAVRAS_QUALIFICACAO = (
     "PROCESSO", "AUTOR", "RÉU", "REU", "REQUERENTE", "REQUERIDO",
@@ -373,11 +392,35 @@ _PALAVRAS_QUALIFICACAO = (
 
 
 def _parece_enderecamento(paragrafo):
-    """Heurística: o parágrafo parece um endereçamento judicial formal
-    (ex.: 'EXCELENTÍSSIMO(A) SENHOR(A)...')."""
+    """O parágrafo é o endereçamento da peça?
+
+    Dois caminhos. O primeiro cita um órgão conhecido ('EXCELENTÍSSIMO...',
+    'AO INSTITUTO NACIONAL DO SEGURO SOCIAL...'). O segundo vale pela FORMA:
+    linha única, aberta por AO/À, em caixa alta e curta — é assim que se
+    endereça a órgão que a lista não prevê.
+    """
     if not paragrafo:
         return False
-    return any(p in paragrafo.strip().upper() for p in _PALAVRAS_ENDERECAMENTO)
+    texto = paragrafo.strip()
+
+    # A FORMA vem primeiro, e é ela que barra a prosa. Antes bastava a palavra
+    # em qualquer posição, e "JUIZ" casava dentro de "ajuizada": a frase
+    # "Trata-se de ação monitória ajuizada por..." passava por endereçamento.
+    if "\n" in texto or len(texto) > 300:
+        return False
+    letras = [c for c in texto if c.isalpha()]
+    if len(letras) < 10:
+        return False
+    caixa_alta = sum(1 for c in letras if c.isupper()) / len(letras) >= 0.8
+    abre_como = bool(_RE_ENDERECAMENTO_FORMA.match(texto))
+    if not (caixa_alta or abre_como):
+        return False
+
+    alto = texto.upper()
+    tem_palavra = any(re.search(r"\b" + re.escape(p), alto)
+                      for p in _PALAVRAS_ENDERECAMENTO)
+    # Órgão conhecido, ou o desenho inconfundível: "AO/À <ÓRGÃO EM CAIXA ALTA>".
+    return tem_palavra or (abre_como and caixa_alta)
 
 
 # Linha de qualificação: "Rótulo: valor" ou "Rótulo nº valor", ANCORADA no
@@ -559,9 +602,16 @@ def _extrair_nomes_partes(linhas_qualif):
     # Rotulos que NAO designam parte (numero de processo/PAJ, valores, prazos).
     # Sem isso, "Autos na origem: 0802152-10.2024.4.05.8200" faria o numero do
     # processo ser tratado como nome de parte e sair em negrito/caixa alta.
+    # Rotulos de CONTEXTO, nao de parte. Os quatro ultimos grupos entraram em
+    # 20/10/2026: "Beneficio: NB 32/640.501.368-9 - aposentadoria por
+    # incapacidade permanente" tem duas palavras longas e passava por nome,
+    # saindo em CAIXA ALTA e negrito no cabecalho da defesa administrativa do
+    # PAJ 2026/056-00747.
     rotulo_nao_parte = re.compile(
         r'(?i)^\s*(processo|autos|paj|proc\.?|n[uú]mero|valor|prazo|classe|'
-        r'assunto|pretens|of[íi]cio|origem)'
+        r'assunto|pretens|of[íi]cio|origem|'
+        r'benef[íi]cio|nb|esp[ée]cie|der|'
+        r'ju[íi]zo|vara|se[cç][ãa]o|decis[ãa]o)'
     )
     nomes = []
     for linha in linhas_qualif:
@@ -572,6 +622,13 @@ def _extrair_nomes_partes(linhas_qualif):
             continue
         nome = re.sub(r'\s*\([^)]*\)\s*$', '', m.group(1)).strip().rstrip('.,;')
         nome = nome.replace('*', '').strip()
+        # Corta o documento colado no nome: "WELLITON DANTAS DA SILVA - CPF
+        # 797.577.404-97". Mantido, o nome so' casaria na propria linha de
+        # qualificacao e NAO no corpo da peca, onde ele aparece sozinho — a
+        # parte ficava sem negrito em todas as demais mencoes.
+        nome = re.sub(
+            r'(?i)\s*[-–—,;]?\s*\b(?:CPF|CNPJ|RG|NB|OAB|MATR[ÍI]CULA|'
+            r'INSCRI[ÇC][ÃA]O)\b.*$', '', nome).strip().rstrip('.,;-–—')
         # Precisa parecer NOME: ao menos duas palavras de 3+ letras. Isso
         # descarta numeros de processo, siglas isoladas e datas.
         palavras = re.findall(r'[^\W\d_]{3,}', nome)
