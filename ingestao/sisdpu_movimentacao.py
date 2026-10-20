@@ -490,6 +490,13 @@ async def inserir_movimentacao(
             )
     movs_antes = len(det.get("movimentacoes") or [])
     resultado["movs_antes"] = movs_antes
+    # A CONTAGEM nao serve de prova: a tela do SIS mostra um numero fixo de
+    # linhas, entao gravar uma movimentacao nova nao a aumenta. Quem cresce e'
+    # a SEQUENCIA. Guardando a maior seq de antes, a verificacao final compara
+    # o que de fato muda.
+    seq_antes = max((int(m.get("seq", 0) or 0)
+                     for m in (det.get("movimentacoes") or [])), default=0)
+    resultado["seq_antes"] = seq_antes
 
     page = await sc._get_page()
     await _abrir_tela_movimentacao(page, paj_texto)
@@ -574,16 +581,36 @@ async def inserir_movimentacao(
         )
     )[:300]
 
-    # Verificacao independente: rele o PAJ e compara a contagem.
-    depois = await sc.buscar_paj_global(numero, ano, unidade)
-    movs = depois.get("movimentacoes") or []
+    # Verificacao independente: rele o PAJ e confere se a SEQUENCIA cresceu.
+    #
+    # A versao anterior comparava a CONTAGEM e relia uma vez so', poucos
+    # segundos depois do clique. Dois erros num: a contagem nao muda (a tela
+    # mostra um numero fixo de linhas) e o SIS leva um tempo para registrar.
+    # Em 20/10/2026 o PAJ 2026/056-00107 recebeu a movimentacao as 19:14:31 e
+    # a conferencia olhou as 19:12:53 — deu "nao gravou" sobre uma gravacao
+    # que deu certo, e o lote parou achando que havia risco de duplicar.
+    movs: list = []
+    seq_depois = seq_antes
+    for tentativa in range(4):
+        if tentativa:
+            await page.wait_for_timeout(15000)
+        depois = await sc.buscar_paj_global(numero, ano, unidade)
+        movs = depois.get("movimentacoes") or []
+        seq_depois = max((int(m.get("seq", 0) or 0) for m in movs), default=0)
+        if seq_depois > seq_antes:
+            break
+        _log.info("verificacao %d/4: seq ainda em %s, aguardando o SIS",
+                  tentativa + 1, seq_depois)
+
     resultado["movs_depois"] = len(movs)
-    resultado["gravado"] = len(movs) > movs_antes
+    resultado["seq_depois"] = seq_depois
+    resultado["gravado"] = seq_depois > seq_antes
     if movs:
         resultado["ultima_movimentacao"] = _norm(movs[0].get("descricao") or "")[:220]
     if not resultado["gravado"]:
         resultado["aviso"] = (
-            "SUBMETI, mas a contagem de movimentacoes nao aumentou — confira "
-            "manualmente no SISDPU antes de repetir, para nao duplicar."
+            f"SUBMETI, mas a sequencia nao avancou em 45s (seq {seq_antes} "
+            "antes e depois) — confira manualmente no SISDPU antes de "
+            "repetir, para nao duplicar."
         )
     return resultado
