@@ -540,6 +540,19 @@ class ChatLivreSession:
             return False
 
     def start(self) -> bool:
+        # Trava de materia sensivel: a aba Discussao injeta o PROMPT_MAX do PAJ
+        # como contexto, entao vale a mesma regra da analise e da elaboracao.
+        # Ver services/materia_sensivel.
+        if self.paj_norm:
+            from services import materia_sensivel
+
+            r = materia_sensivel.verificar(self.paj_norm)
+            if r["bloqueado"]:
+                self.error = materia_sensivel.erro_bloqueio(r)
+                self.output_queue.put({"type": "error", "text": self.error})
+                self.output_queue.put({"type": "done"})
+                return False
+
         conversa = ler_conversa(self.conv_id, paj_norm=self.paj_norm)
         if not conversa:
             self.error = "Conversa nao encontrada."

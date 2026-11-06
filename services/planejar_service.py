@@ -292,6 +292,14 @@ async def planejar_elaboracao(
         timeout: maximo de segundos
         feedback_jp: instrucao adicional do Defensor para refazer com observacao
     """
+    # Trava de materia sensivel — ver services/materia_sensivel.
+    from services import materia_sensivel
+
+    _sens = materia_sensivel.verificar(paj_norm)
+    if _sens["bloqueado"]:
+        return {"ok": False, "bloqueado": True,
+                "erro": materia_sensivel.erro_bloqueio(_sens)}
+
     pasta = PAJS_DIR / paj_norm
     meta_f = pasta / "metadata.json"
     if not meta_f.exists():

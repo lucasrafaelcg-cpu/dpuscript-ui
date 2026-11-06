@@ -47,6 +47,17 @@ IGNORAR = {
     "historico.jsonl",
 }
 
+def _materia_sensivel(paj_norm: str, metadata: dict) -> dict:
+    """Indicio de materia sensivel. Falha aqui BLOQUEIA, nao libera."""
+    try:
+        from services import materia_sensivel
+
+        return materia_sensivel.verificar(paj_norm, metadata)
+    except Exception as e:
+        return {"bloqueado": True, "achados": [
+            {"onde": "verificacao", "termo": str(e)[:120], "trecho": ""}]}
+
+
 def _estado_situacao(paj_norm: str, metadata: dict) -> dict:
     """Estado da analise FIRAC. Best-effort: nunca derruba a tela do PAJ."""
     try:
@@ -440,6 +451,9 @@ def ler_paj(paj_norm: str) -> dict | None:
         "prompt_max": prompt_max,
         "situacao": situacao,
         "situacao_em": situacao_em,
+        # Matéria sensível: se houver indício, a tela avisa e os botões que
+        # chamam a IA ficam fora do alcance. Ver services/materia_sensivel.
+        "materia_sensivel": _materia_sensivel(paj_norm, metadata),
         # Análise em dia? Última tentativa falhou? Sem isto a tela mostrava a
         # análise antiga sem distinguir "atual" de "a atualização falhou".
         "situacao_estado": _estado_situacao(paj_norm, metadata),

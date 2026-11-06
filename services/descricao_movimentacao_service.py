@@ -83,6 +83,15 @@ def descricao_para_html(texto: str) -> str:
 
 async def gerar_descricao(paj_norm: str, caminho_rel: str, timeout: int = 150) -> dict:
     """Devolve {ok, descricao, aviso?}. `descricao` sempre vem preenchida."""
+    # Trava de materia sensivel — ver services/materia_sensivel.
+    from services import materia_sensivel
+
+    _sens = materia_sensivel.verificar(paj_norm)
+    if _sens["bloqueado"]:
+        return {"ok": False, "bloqueado": True,
+                "erro": materia_sensivel.erro_bloqueio(_sens),
+                "descricao": ""}
+
     pasta = PAJS_DIR / paj_norm
     reserva = _primeira_linha_pelo_nome(Path(caminho_rel).name)
 

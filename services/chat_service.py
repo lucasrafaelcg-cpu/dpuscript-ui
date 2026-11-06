@@ -547,8 +547,28 @@ class ChatSession:
         except Exception:
             return None
 
+    def _bloqueio_materia_sensivel(self) -> bool:
+        """True (e avisa na tela) se o PAJ nao pode ir para a IA.
+
+        Roda antes de abrir o subprocesso: nenhum texto do PAJ chega a ser
+        enviado. Ver services/materia_sensivel.
+        """
+        from services import materia_sensivel
+
+        r = materia_sensivel.verificar(self.paj_norm)
+        if not r["bloqueado"]:
+            return False
+        self.status = "error"
+        self.error = materia_sensivel.erro_bloqueio(r)
+        self.output_queue.put({"type": "error", "text": self.error})
+        self.output_queue.put({"type": "done"})
+        self._persist()
+        return True
+
     def start(self) -> bool:
         """Inicia o subprocess Claude Code em modo stream-json."""
+        if self._bloqueio_materia_sensivel():
+            return False
         prompt_path = PAJS_DIR / self.paj_norm / "PROMPT_MAX.md"
         if not prompt_path.exists():
             self.output_queue.put({"type": "error", "text": "PROMPT_MAX.md nao encontrado."})
@@ -586,6 +606,8 @@ class ChatSession:
           3. Salvar a versao corrigida
           4. Apresentar o RESUMO ESTRUTURADO padrao
         """
+        if self._bloqueio_materia_sensivel():
+            return False
         if not self._start_subprocess():
             return False
 

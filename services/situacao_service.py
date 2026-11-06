@@ -78,6 +78,15 @@ def agendar_analise(paj_norm: str) -> bool:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return False
+
+    # PAJ de matéria sensível nem entra na fila: não adianta enfileirar para
+    # bloquear depois, e assim o log do sync já registra a razão.
+    from services import materia_sensivel
+
+    if materia_sensivel.verificar(paj_norm)["bloqueado"]:
+        logger.warning("[situacao-auto] %s NAO enfileirado — materia sensivel",
+                       paj_norm)
+        return False
     with _lock:
         if paj_norm in _na_fila or paj_norm in _em_andamento:
             return False
@@ -380,6 +389,18 @@ def _montar_prompt_situacao(paj_norm: str) -> str | None:
 async def gerar_situacao(paj_norm: str, timeout: int = 300) -> dict:
     """Roda a análise FIRAC e grava SITUACAO.md. Retorna {ok, texto|erro}."""
     pasta = PAJS_DIR / paj_norm
+
+    # Trava de matéria sensível ANTES de montar o prompt: a varredura custa
+    # milissegundos e evita que o texto chegue a sair daqui. Ver
+    # services/materia_sensivel.
+    from services import materia_sensivel
+
+    sensivel = materia_sensivel.verificar(paj_norm)
+    if sensivel["bloqueado"]:
+        logger.warning("[situacao] %s BLOQUEADO — materia sensivel", paj_norm)
+        return {"ok": False, "bloqueado": True,
+                "erro": materia_sensivel.erro_bloqueio(sensivel)}
+
     prompt = _montar_prompt_situacao(paj_norm)
     if prompt is None:
         return {"ok": False, "erro": "PAJ não encontrado."}

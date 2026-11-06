@@ -316,6 +316,35 @@
     </div>
 </div>
 
+{# Trava de matéria sensível. Fica ANTES de tudo e em vermelho: o Defensor
+   precisa saber, ao abrir o PAJ, que este caso não vai para a IA. #}
+{% if dados.materia_sensivel and dados.materia_sensivel.bloqueado %}
+<div class="alert alert-error mb-4 items-start">
+    <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"></path></svg>
+    <div>
+        <h3 class="font-bold">Análise automática bloqueada — matéria sensível</h3>
+        <p class="text-sm mt-1">
+            Há indício de matéria de abuso sexual infantil neste PAJ. Por decisão
+            institucional, esse material não é enviado a ferramenta de IA:
+            <strong>análise, elaboração, planejamento e discussão estão
+            desligados</strong> para este PAJ. Trabalhe o caso manualmente.
+        </p>
+        <p class="text-xs mt-2 opacity-90">O que disparou a trava:</p>
+        <ul class="text-xs mt-1 list-disc ml-5">
+            {% for a in dados.materia_sensivel.achados %}
+            <li><span class="opacity-80">{{ a.onde }}:</span>
+                <code>{{ a.termo }}</code></li>
+            {% endfor %}
+        </ul>
+        <p class="text-xs mt-2 opacity-75">
+            Sincronização, leitura de movimentações e geração de DOCX/PDF a
+            partir de texto que você mesmo escrever continuam funcionando: nada
+            disso chama a IA.
+        </p>
+    </div>
+</div>
+{% endif %}
+
 {% include "partials/sync_modal.html" %}
 {% include "partials/limpeza_modal.html" %}
 
