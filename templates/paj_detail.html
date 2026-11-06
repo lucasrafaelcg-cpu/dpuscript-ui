@@ -109,6 +109,23 @@
              Linha 2 = controles de elaboracao (skills + Elaborar + Ver Resumo). -->
         <div class="flex flex-col gap-2 sm:items-end">
 
+            {# Fecho da análise: CONCLUIR tira o PAJ da caixa e volta; RETORNAR
+               só volta. Ficam na primeira linha porque é o último ato na tela,
+               e procurá-los no rodapé custaria uma rolagem. #}
+            <div class="join">
+                <button class="join-item btn btn-sm btn-success normal-case gap-1.5"
+                        onclick="concluirEVoltar('{{ paj_norm }}', {{ dados.max_seq_mov or 0 }}, this)"
+                        title="Tira este PAJ da caixa de entrada e volta para a lista. Não mexe no SISDPU; nova movimentação traz o PAJ de volta.">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path></svg>
+                    Concluir
+                </button>
+                <a class="join-item btn btn-sm btn-ghost normal-case gap-1.5" href="/"
+                   title="Volta para a caixa de entrada sem concluir o PAJ">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"></path></svg>
+                    Retornar
+                </a>
+            </div>
+
             <!-- Sincronizar PAJ: split button (com anexos por padrao) -->
             <div class="join">
                 <button class="join-item btn btn-sm btn-outline btn-primary normal-case gap-1.5"
@@ -338,10 +355,15 @@
 {% endif %}
 
 <!-- Tabs -->
-<!-- ?tab=prompt (usado pela Caixa de triagem) abre direto a Situação do PAJ -->
-<div x-data="{ tab: (() => { const t = new URLSearchParams(location.search).get('tab'); return ['resumo','movs','anexos','pecas_jud','despachos','notas','prompt'].includes(t) ? t : 'resumo'; })() }" class="mt-4">
+{# A Situação do PAJ é a primeira aba e a padrão: é por ela que a análise
+   começa. O Resumo foi para o fim — é consulta, não ponto de partida. #}
+<div x-data="{ tab: (() => { const t = new URLSearchParams(location.search).get('tab'); return ['resumo','movs','anexos','pecas_jud','despachos','notas','discutir','prompt'].includes(t) ? t : 'prompt'; })() }" class="mt-4">
     <div role="tablist" class="tabs tabs-bordered mb-4">
-        <a role="tab" class="tab" :class="tab === 'resumo' && 'tab-active'" @click="tab = 'resumo'">Resumo</a>
+        <a role="tab" class="tab" :class="tab === 'prompt' && 'tab-active'"
+           @click="tab = 'prompt'"
+           title="Guia do fluxo: razão do encaminhamento, análise FIRAC e próximo passo (PROMPT_MAX.md)">
+            Situação do PAJ
+        </a>
         <a role="tab" class="tab" :class="tab === 'movs' && 'tab-active'" @click="tab = 'movs'">
             Movimentações <span class="badge badge-ghost badge-xs ml-1">{{ dados.movimentacoes|length }}</span>
         </a>
@@ -366,11 +388,7 @@
            title="Modo conversa: explorar tese, brainstorm estratégico, dúvidas sobre o caso">
             Discutir
         </a>
-        <a role="tab" class="tab" :class="tab === 'prompt' && 'tab-active'"
-           @click="tab = 'prompt'"
-           title="Guia do fluxo: razão do encaminhamento, análise FIRAC e próximo passo (PROMPT_MAX.md)">
-            Situação do PAJ
-        </a>
+        <a role="tab" class="tab" :class="tab === 'resumo' && 'tab-active'" @click="tab = 'resumo'">Resumo</a>
     </div>
 
     <!-- Tab: Notas (anotacoes pessoais — NOTAS.md no disco) -->
@@ -999,6 +1017,30 @@
    pedido dele ja' e' a autorizacao. O confirm() e' guarda contra clique
    acidental, nao segunda autorizacao: movimentacao gravada nao volta atras.
    A operacao demora ~1 min (abre o SISDPU, sobe o arquivo e confere). */
+/* Tira o PAJ da caixa de entrada e volta para a lista. É marca do painel:
+   não movimenta o SISDPU, e movimentação nova traz o PAJ de volta sozinho —
+   `max_seq_mov` é a sequência no instante da conclusão, e o PAJ reaparece
+   quando a sequência passa dela. Sem confirmação: é reversível pelo botão
+   "Reabrir" da própria lista. */
+function concluirEVoltar(pajNorm, maxSeqMov, botao) {
+    if (botao) botao.disabled = true;
+    fetch('/api/paj/' + encodeURIComponent(pajNorm) + '/concluir', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json; charset=utf-8'},
+        body: JSON.stringify({max_seq_mov: maxSeqMov})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d && d.ok === false) {
+            showToast('Não consegui concluir: ' + (d.erro || 'erro'), 'error');
+            if (botao) botao.disabled = false;
+            return;
+        }
+        window.location.href = '/';
+    }).catch(function(e) {
+        showToast('Erro de rede: ' + e, 'error');
+        if (botao) botao.disabled = false;
+    });
+}
+
 /* Recorta a seção 4 da análise FIRAC e grava como despacho .txt neste PAJ.
    Para os PAJs analisados antes de isso virar automático. */
 function extrairDespachoDaAnalise(pajNorm, botao) {
