@@ -19,8 +19,12 @@ gigantes/corrompidos).
 
 from __future__ import annotations
 
+import contextlib
+import logging
 from pathlib import Path
 from collections.abc import Callable
+
+_log = logging.getLogger(__name__)
 
 _MIN_NATIVE_CHARS = 200
 
@@ -160,6 +164,57 @@ def extrair_texto_docx(path: Path) -> str:
     return "\n\n".join(partes) + "\n"
 
 
+def extrair_texto_doc(path: Path) -> str:
+    """Extrai texto de um .doc ANTIGO (OLE2, Word 97-2003), via Word.
+
+    `python-docx` nao le esse formato — ele e' um conteiner OLE2, nao um zip
+    de XML. Sem isto, a minuta chegava sem texto: no PAJ 2023/056-01080 o
+    arquivo `01_05_11_2026_MINUTA.doc` ficou sem `.txt` e o painel acabou
+    apresentando OUTRA peca, de agosto, como "a minuta a revisar".
+
+    Usa o Word por COM, que ja' e' dependencia do painel (o docx2pdf converte
+    as pecas por ele). Falhando, devolve texto vazio — e quem chama trata a
+    ausencia explicitamente, em vez de cair noutro arquivo.
+    """
+    try:
+        import pythoncom  # noqa: F401  (inicializa o COM nesta thread)
+        import win32com.client
+    except Exception:
+        _log.warning("pywin32 ausente — nao da' para ler .doc")
+        return ""
+
+    pythoncom.CoInitialize()
+    word = None
+    doc = None
+    try:
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0
+        # ReadOnly e AddToRecentFiles=False para nao mexer no ambiente do
+        # Defensor; ConfirmConversions=False evita caixa de dialogo travando
+        # o processo sem ninguem para clicar.
+        doc = word.Documents.Open(
+            str(path.resolve()),
+            ConfirmConversions=False, ReadOnly=True,
+            AddToRecentFiles=False, Visible=False,
+        )
+        texto = doc.Content.Text or ""
+        # O Word usa CR puro como fim de paragrafo.
+        return texto.replace("\r\n", "\n").replace("\r", "\n").strip()
+    except Exception as e:
+        _log.warning("falha ao ler %s pelo Word: %s", path.name, e)
+        return ""
+    finally:
+        with contextlib.suppress(Exception):
+            if doc is not None:
+                doc.Close(SaveChanges=False)
+        with contextlib.suppress(Exception):
+            if word is not None:
+                word.Quit()
+        with contextlib.suppress(Exception):
+            pythoncom.CoUninitialize()
+
+
 def extrair_texto_arquivo(
     path: Path,
     *,
@@ -176,4 +231,6 @@ def extrair_texto_arquivo(
         )
     if ext == ".docx":
         return extrair_texto_docx(path)
+    if ext == ".doc":
+        return extrair_texto_doc(path)
     return None

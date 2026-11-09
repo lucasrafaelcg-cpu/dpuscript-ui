@@ -566,10 +566,13 @@ async def _baixar_anexos_sisdpu(
         baixados += 1
         log(f"    [anexo {idx}] salvo: {salvo.name}")
 
-        # Extracao de texto: PDF (nativo + OCR) e DOCX (python-docx). DOCX
-        # importa porque as MINUTAS da assessoria chegam nesse formato — sem
-        # o .txt companion a analise do PAJ nao consegue ler nem revisar.
-        if salvo.suffix.lower() in (".pdf", ".docx"):
+        # Extracao de texto: PDF (nativo + OCR), DOCX (python-docx) e DOC
+        # antigo (Word por COM). Os formatos do Word importam porque as
+        # MINUTAS da assessoria chegam neles — sem o .txt companion a analise
+        # nao consegue ler nem revisar. O .doc entrou em 09/11/2026: a minuta
+        # do PAJ 2023/056-01080 vinha nesse formato, ficava sem texto, e o
+        # painel acabava apresentando outra peca no lugar dela.
+        if salvo.suffix.lower() in (".pdf", ".docx", ".doc"):
             txt_path = salvo.with_suffix(".txt")
             if txt_path.exists() and txt_path.stat().st_size > 0:
                 continue

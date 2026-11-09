@@ -189,19 +189,25 @@ def _localizar_minuta(pasta: Path) -> dict | None:
     """
     cands = []
     for it in _inventario_anexos(pasta):
-        txt = it["txt"]
-        if txt is None or txt.stat().st_size <= 200:
-            continue
         # `_` e' caractere de palavra: sem trocar por espaco, `\bpi\b` nunca
         # casaria em nomes como "03_29_07_2026_PI.docx".
         nome_norm = it["nome"].replace("_", " ")
         if not _RE_NOME_MINUTA.search(nome_norm):
             continue
+        txt = it["txt"]
+        it = dict(it, sem_texto=(txt is None or txt.stat().st_size <= 200))
         cands.append((0 if "minuta" in nome_norm.lower() else 1, it["ordem"], it))
 
     if not cands:
         return None
     cands.sort(key=lambda c: (c[0], c[1]))
+
+    # O MELHOR candidato vence mesmo sem texto extraido. A versao anterior
+    # descartava quem nao tinha `.txt` e caia no proximo da fila: no PAJ
+    # 2023/056-01080 a minuta de 05/11 (um .doc sem texto) foi descartada e o
+    # painel apresentou como "minuta a revisar" uma peticao de 21/08, ja
+    # protocolada e ja apreciada. Revisar o documento errado e' pior que nao
+    # revisar: agora quem nao tem texto volta MARCADO, e a secao diz isso.
     return cands[0][2]
 
 
@@ -221,6 +227,20 @@ def _secao_minuta(pasta: Path, movs_ord: list[dict], ler_texto) -> list[str]:
     )
 
     item = _localizar_minuta(pasta)
+    if item is not None and item.get("sem_texto"):
+        # Achou o arquivo certo, mas sem texto extraido. Dizer isso e' o unico
+        # desfecho honesto: nao se revisa o que nao se leu, e nao se troca por
+        # outro documento.
+        linhas.append(f"- **Arquivo da minuta:** `pecas/{item['nome']}`")
+        linhas.append(
+            "> ATENCAO: o arquivo da minuta EXISTE mas nao teve texto "
+            "extraido (formato nao lido na coleta, ou extracao falhou). NAO "
+            "revise outro documento no lugar dele e NAO adivinhe o teor: "
+            "informe que a minuta nao pode ser lida e peca a ressincronizacao "
+            "do PAJ ou o arquivo em outro formato."
+        )
+        return linhas
+
     if item is not None:
         texto = (ler_texto(item["txt"]) or "").strip()
         if len(texto) > MAX_MINUTA_CHARS:
