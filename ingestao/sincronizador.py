@@ -250,6 +250,31 @@ def _detectar_ext_por_magic(path: Path) -> str | None:
 
 
 # Extensoes "conhecidas" que nao precisam de rebatizacao por magic bytes
+def stem_real(nome: str) -> str:
+    """Nome do anexo sem a extensao VERDADEIRA.
+
+    `Path.stem` nao serve aqui: o SISDPU nomeia anexos com ponto no meio
+    ("PETICAO INICIAL. COBRANCA PREVIDENCIARIA. ... 2026.056-00490"), e o
+    `suffix` vira `.056-00490`. Isso tinha duas consequencias, as duas
+    observadas no PAJ 2026/056-00490:
+
+      * a deduplicacao do download comparava stems que nunca batiam, entao o
+        mesmo anexo era baixado a cada sync e a pasta ficava com duas copias,
+        uma sem extensao;
+      * o `.txt` do texto extraido saia batizado errado
+        ("...ROSA. 2026.txt"), e ninguem o encontrava depois.
+
+    Aqui so' e' extensao o que esta em `_EXTS_LEGITIMAS`.
+    """
+    p = Path(nome)
+    return p.stem if p.suffix.lower() in _EXTS_LEGITIMAS else p.name
+
+
+def caminho_txt(arquivo: Path) -> Path:
+    """Companion .txt do anexo, respeitando pontos no meio do nome."""
+    return arquivo.with_name(stem_real(arquivo.name) + ".txt")
+
+
 _EXTS_LEGITIMAS = {
     ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp",
@@ -539,13 +564,18 @@ async def _baixar_anexos_sisdpu(
         # Comparacao tolerante ao prefixo numerico — necessaria porque novos
         # anexos no SISDPU podem renumerar a sequencia. Sem isso, qualquer
         # categoria nova faria todos os anexos antigos serem re-baixados.
-        stem_alvo = _stem_sem_prefixo_idx(destino.stem)
+        # stem_real, nao `.stem`: o nome do anexo tem ponto no meio e o
+        # `suffix` vira lixo. Com `.stem`, a copia ja' reparada (com .docx no
+        # fim) nunca casava com o alvo, o anexo era baixado DE NOVO a cada
+        # sync e a pasta acumulava duas copias do mesmo arquivo — uma delas
+        # sem extensao e, por isso, sem texto extraido nunca.
+        stem_alvo = _stem_sem_prefixo_idx(stem_real(destino.name))
         existentes = [
             p for p in pasta_pecas.iterdir()
             if p.is_file()
             and p.suffix.lower() != ".txt"
             and p.stat().st_size > 0
-            and _stem_sem_prefixo_idx(p.stem) == stem_alvo
+            and _stem_sem_prefixo_idx(stem_real(p.name)) == stem_alvo
         ]
         if existentes:
             log(f"    [anexo {idx}] já existe — pulando {existentes[0].name}")
@@ -573,7 +603,7 @@ async def _baixar_anexos_sisdpu(
         # do PAJ 2023/056-01080 vinha nesse formato, ficava sem texto, e o
         # painel acabava apresentando outra peca no lugar dela.
         if salvo.suffix.lower() in (".pdf", ".docx", ".doc"):
-            txt_path = salvo.with_suffix(".txt")
+            txt_path = caminho_txt(salvo)
             if txt_path.exists() and txt_path.stat().st_size > 0:
                 continue
             # Se ja cancelou ate chegar aqui, pula OCR (mas deixa o PDF salvo)
