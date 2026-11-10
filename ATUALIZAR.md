@@ -55,6 +55,62 @@ git push
 
 A outra máquina pega na próxima vez que rodar `atualizar.bat`.
 
+## Trabalhar em duas máquinas (casa e DPU), por pen drive
+
+Os PAJs **não vão para nuvem nenhuma**, nem para o OneDrive institucional: ali
+trafegam dados pessoais e de saúde dos assistidos. O transporte é físico.
+
+**Em casa, depois de sincronizar o SISDPU:**
+
+```bash
+python ferramentas/exportar_pajs.py --saida E:\
+```
+
+Gera `PAJs-AAAAMMDD-HHMM.zip` com os PAJs tocados **desde a última
+exportação** — a data fica guardada, então não é preciso lembrar. Sem marca
+anterior, usa as últimas 24 horas. Outros cortes: `--desde 2026-11-01` ou
+`--tudo`. Para um pacote bem menor, sem os PDFs: `--sem-anexos`.
+
+**Na DPU:**
+
+```bash
+python ferramentas/importar_pajs.py E:\PAJs-20261110-1930.zip
+```
+
+Depois, reinicie o painel para ele reler a pasta.
+
+### O que o importador garante
+
+**Nunca apaga, nunca sobrescreve coisa mais nova.** A comparação é por data de
+modificação, arquivo a arquivo. Se você mexeu no mesmo PAJ dos dois lados, o
+arquivo local mais novo fica e o caso é listado no fim, para você decidir — o
+pacote continua no pen drive se quiser comparar.
+
+**Confere a integridade.** Cada arquivo carrega o SHA-256 no manifesto, e nada
+é gravado sem bater. Pen drive é onde arquivo corrompe calado.
+
+**É idempotente.** Importar o mesmo pacote duas vezes não mexe em nada na
+segunda — testado: 1.773 arquivos, zero alterações.
+
+**Preserva as datas.** O `zipfile` do Python não restaura data de modificação
+na extração, e sem isso tudo chegaria parecendo recém-criado — inclusive o
+`SITUACAO.md`, cuja data o painel usa para medir se a análise está atrasada.
+O importador devolve a data gravada no próprio zip.
+
+**Leva o estado do painel.** `.concluidos.json`, `.diligencias.json` e
+`.situacao_falhas.json` viajam e são **mesclados**, não trocados: entram os
+registros que faltam, e item já marcado como anexado não volta a pendente.
+
+**Não leva credencial.** `.env`, `.credentials.json`, chaves e certificados
+ficam de fora por lista explícita, conferida nome a nome antes de fechar o zip.
+
+### Tamanho
+
+Com os anexos, um dia de trabalho dá algo entre algumas dezenas e ~300 MB (no
+teste, 46 PAJs deram 279 MB). Com `--sem-anexos`, cai para poucos megabytes —
+viajam metadata, análises, despachos, peças e o texto extraído dos anexos, mas
+não os PDFs originais.
+
 ## O que não está aqui, de propósito
 
 - `.env` e `.credentials.json` — são de cada máquina.

@@ -11,7 +11,15 @@ OFICIO_GERAL = Path(os.getenv(
     "OFICIO_GERAL",
     str(Path.home() / "Desktop" / "Ofício Geral"),
 ))
-PAJS_DIR = OFICIO_GERAL / "PAJs"
+
+# A pasta dos PAJs pode viver FORA do workspace. Serve para o Defensor que
+# trabalha em duas maquinas (casa e DPU): apontando `PAJS_DIR` para uma pasta
+# do OneDrive institucional, o que foi sincronizado numa maquina aparece na
+# outra sem re-sincronizar o SISDPU. O resto do workspace (skills, scripts)
+# continua local, porque ele vem do git pelo `atualizar.bat`.
+#
+# Sem a variavel, nada muda: a pasta e' `<OFICIO_GERAL>/PAJs`, como sempre.
+PAJS_DIR = Path(os.getenv("PAJS_DIR") or (OFICIO_GERAL / "PAJs"))
 PECAS_FEITAS_DIR = OFICIO_GERAL / "Peças Feitas"
 
 # Identificacao do oficio exibida no painel (titulo da aba, sidebar). Sem
